@@ -1,2 +1,2 @@
 # TFM 
-## Estudio e implementación de métodos semi-supervisados en Spark-ML
+## Estudio e implementación de métodos de clasificacion semi-supervisados (SSC) en Spark-ML
