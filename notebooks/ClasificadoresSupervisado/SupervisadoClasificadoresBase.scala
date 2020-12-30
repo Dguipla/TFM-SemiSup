@@ -1,216 +1,6 @@
-﻿// Databricks notebook source
+// Databricks notebook source
 // miramos los documentos adjuntados
-//display(dbutils.fs.ls("/FileStore/tables"))
-
-// COMMAND ----------
-
-// DBTITLE 1,SupervisadoClasificadoresBase - Breast Cancser Wisconsin  (DT, LR, RF,NB, LSVM)
-// LIBRERIAS necesarias (IMPORTACIONES)
-
-import org.apache.spark.sql.types.{StructType,StructField,StringType,DoubleType}
-import org.apache.spark.sql.Row
-import org.apache.spark.sql.DataFrame
-import org.apache.spark.ml.feature.StringIndexer
-import org.apache.spark.ml.feature.StringIndexerModel
-import org.apache.spark.ml.feature.VectorAssembler
-import org.apache.spark.mllib.evaluation.MulticlassMetrics
-import org.apache.spark.ml.{Pipeline, PipelineModel}
-import scala.util.control.Breaks._
-
-// clasificadores Base
-import org.apache.spark.ml.classification.DecisionTreeClassifier
-import org.apache.spark.ml.classification.LogisticRegression
-import org.apache.spark.ml.classification.NaiveBayes
-import org.apache.spark.ml.classification.RandomForestClassifier
-import org.apache.spark.ml.classification.LinearSVC
-
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//DATA FRAMES RESULTADOS PARA BREAST CANCER WISCONSIN
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-/*
-val breastCancerWisconResultados = spark.createDataFrame(Seq(
-  ("BCW", "DT", 0.02, 0.00),
-  ("BCW", "DT", 0.05, 0.00),
-  ("BCW", "DT", 0.10, 0.00),
-  ("BCW", "DT", 0.30, 0.00),
-  
-  ("BCW", "LR", 0.02, 0.00),
-  ("BCW", "LR", 0.05, 0.00),
-  ("BCW", "LR", 0.10, 0.00),
-  ("BCW", "LR", 0.30, 0.00),
-  
-  ("BCW", "RF", 0.02, 0.00),
-  ("BCW", "RF", 0.05, 0.00),
-  ("BCW", "RF", 0.10, 0.00),
-  ("BCW", "RF", 0.30, 0.00),
-  
-  ("BCW", "NB", 0.02, 0.00),
-  ("BCW", "NB", 0.05, 0.00),
-  ("BCW", "NB", 0.10, 0.00),
-  ("BCW", "NB", 0.30, 0.00),
-  
-  ("BCW", "LSVM", 0.02, 0.00),
-  ("BCW", "LSVM", 0.05, 0.00),
-  ("BCW", "LSVM", 0.10, 0.00),
-  ("BCW", "LSVM", 0.30, 0.00)
-)).toDF("data", "clasificador", "porcentajeEtiquetado", "accuracy")
-*/
-
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-// LECTURA
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//leemos el documento
-val PATH="dbfs:/FileStore/tables/"
-val datos="cancerWisconsin.csv"
-val lines_datos= sc.textFile(PATH + datos)//.map(x=>x.split(","))
-
-// creamos el DF
-val datosDF = spark.read.format("csv")
-  .option("sep", ",")
-  .option("inferSchema", "true")
-  .option("header", "true")
-  .load(PATH + datos)
-//datosDF.printSchema() 
-
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//CLEANING y PRE-PROCESADO
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-//observamos la ultima linea sin header, vamos a ver que hay en ella:
-val valoresDistintos= datosDF.select("_c32").distinct().count() //=1
-// Vemos que es valoresDistintos es 1, con lo cual se puede elimnar esta columna, ya que ha sido un error ya que en el ultimo header se ha añadido una ","despues
-val datosDF_2=datosDF.drop("_c32")
-// donde: 
-
-datosDF_2.printSchema() // dataFrame correcto
-
-
-//vamos a ver que valores nulos tenemos
-val instanciasConNulos=datosDF_2.count() - datosDF_2.na.drop().count()
-println("INSTANCIAS CON NULOS")
-println(instanciasConNulos) //no hay nulos
-
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//DISTRIBUCION DE CLASES
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-println("DISTRIBUCION DE CLASE")
-
-val distribucion_Maligno= ((datosDF_2.filter(datosDF_2("diagnosis")==="M").count).toDouble / (datosDF_2.select("diagnosis").count).toDouble)*100
-val distribucion_Benigno= ((datosDF_2.filter(datosDF_2("diagnosis")==="B").count).toDouble / (datosDF_2.select("diagnosis").count).toDouble)*100
-
-// Vemos que hay un cierto equilibrio en la distribución de clases
-println ("Maligno %")
-println (distribucion_Maligno)
-println ("Benigno %")
-println (distribucion_Benigno)
-
-
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//DATA SPLIT  TRAINING & TEST  (el split de los datos de training en 2%, 5% ... se hace posteriormente)
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-//dividimos en datos de trainning 75% y datos de test 25%
-val dataSplits= datosDF_2.randomSplit(Array(0.75, 0.25))
-val datosDFLabeled_trainning = dataSplits(0)
-val datosDFLabeled_test = dataSplits(1)
-
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//FEATURIZATION -> PREPARAMOS INSTANCIAS
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-//seleccionamos solo los nombres de las columnas de features 
-val datosDFSinClaseSoloFeatures=datosDF_2.columns.diff(Array("diagnosis"))
-
-//creamos las instancias
-//VectorAssembler para generar una array de valores para las features
-val datosFeaturesLabelPipeline= new VectorAssembler().setOutputCol("features").setInputCols(datosDFSinClaseSoloFeatures)
-
-// StringIndexer para pasar el valor categorico a double de la clase , para la features no utilizamos pq ya son doubles. 
-val indiceClasePipeline = new StringIndexer().setInputCol("diagnosis").setOutputCol("label")
-
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//PIPELINE FEATURIZATION para Breast Cancer Wisconsin
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-//generamos el pipeline
-val featurizationPipelineBCW = new Pipeline().setStages(Array(
-                                              datosFeaturesLabelPipeline,
-                                              indiceClasePipeline)
-                                                    )
-
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//PIPELINE  Y EVALUACION PARA TODOS LOS CLASIFICADORES BASE
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-
-// instancia de todos los clasificadores que vamos a utilizar
-val instanciaTrainingPipelineDT = new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label")
-val instanciaTrainingPipelineRF = new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label")
-val instanciaTrainingPipelineNB = new NaiveBayes().setFeaturesCol("features").setLabelCol("label")
-val instanciaTrainingPipelineLR = new LogisticRegression().setFeaturesCol("features").setLabelCol("label")
-val instanciaTrainingPipelineLSVM = new LinearSVC().setFeaturesCol("features").setLabelCol("label")
-
-
-// array de instancias para cada clasificador base
-val arrayInstanciasClasificadores:Array[(String,PipelineStage)] = Array(("DT",instanciaTrainingPipelineDT),
-                                       ("LR",instanciaTrainingPipelineLR),
-                                       ("RF",instanciaTrainingPipelineRF),
-                                       ("NB",instanciaTrainingPipelineNB),
-                                       ("LSVM",instanciaTrainingPipelineLSVM) 
-                                      )
-
-
-
-//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//preparamos los parametros:  
-// 1.- tipo clasificadores, 
-// 2.- porcentaje .... (la informacion que esta en el DataFrame de resultados)
-// 3.- tipo de datos en esta caso breast cancer wisconsin --> BCW
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-val clasificadoresBase = Array ("DT","LR","RF","NB","LSVM")
-val porcentajeLabeled = Array(0.02,0.05,0.10,0.30)
-val datosCodigo = "BCW"
-
-
-//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-// CREAMOS EL TEMPLATE DE DATAFRAME PARA LOS RESULTADOS
-//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-val breastCancerWisconResultados = generadorDataFrameResultados(datosCodigo,clasificadoresBase,porcentajeLabeled)
-
-
-//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-// PIPELINE FINAL AUTOMATIZADO PARA CADA CLASIFICADOR
-//
-// FEATURIZATIO (BCW) --> CLASIFICACOR (DT) --> RESUTADO
-//                    --> CLASIFICACOR (RF) --> RESUTADO
-//                    --> CLASIFICACOR (NB) --> RESUTADO
-//                    --> .....
-//                    --> .....
-//                    --> CLASIFICACOR (XX) --> RESUTADO
-//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-
-// generamos los pipelines para cada clasificador base:
-val generadorPipelinePorClasificador = generadorPipelinesPorClasificador(arrayInstanciasClasificadores,featurizationPipelineBCW)
-
-//una vez tenemos el array de pipelines clasificadores entrenamos el modelo, generamos los resultados y los guardamos en un DataFrame
-val resultados_BCW=generadorModeloResutladosCompleto(datosDFLabeled_test,
-                                  datosDFLabeled_trainning,
-                                  generadorPipelinePorClasificador,
-                                  breastCancerWisconResultados,
-                                  porcentajeLabeled,
-                                  clasificadoresBase)
-
-resultados_BCW.show()
-
-
-
-// COMMAND ----------
-
-//display(resultados_BCW.withColumn("accuracy",col("accuracy")*100))
+display(dbutils.fs.ls("/FileStore/tables"))
 
 // COMMAND ----------
 
@@ -367,3 +157,182 @@ def generadorPipelinesPorClasificador(instanciasModelos:Array[(String,PipelineSt
   salida
 }
 
+
+// COMMAND ----------
+
+// DBTITLE 1,SupervisadoClasificadoresBase - Breast Cancser Wisconsin  (DT, LR, RF,NB, LSVM)
+// LIBRERIAS necesarias (IMPORTACIONES)
+
+import org.apache.spark.sql.types.{StructType,StructField,StringType,DoubleType}
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.ml.feature.StringIndexer
+import org.apache.spark.ml.feature.StringIndexerModel
+import org.apache.spark.ml.feature.VectorAssembler
+import org.apache.spark.mllib.evaluation.MulticlassMetrics
+import org.apache.spark.ml.{Pipeline, PipelineModel}
+import scala.util.control.Breaks._
+
+// clasificadores Base
+import org.apache.spark.ml.classification.DecisionTreeClassifier
+import org.apache.spark.ml.classification.LogisticRegression
+import org.apache.spark.ml.classification.NaiveBayes
+import org.apache.spark.ml.classification.RandomForestClassifier
+import org.apache.spark.ml.classification.LinearSVC
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// LECTURA
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//leemos el documento
+val PATH="dbfs:/FileStore/tables/"
+val datos="cancerWisconsin.csv"
+val lines_datos= sc.textFile(PATH + datos)//.map(x=>x.split(","))
+
+// creamos el DF
+val datosDF = spark.read.format("csv")
+  .option("sep", ",")
+  .option("inferSchema", "true")
+  .option("header", "true")
+  .load(PATH + datos)
+//datosDF.printSchema() 
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//CLEANING y PRE-PROCESADO
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+//observamos la ultima linea sin header, vamos a ver que hay en ella:
+val valoresDistintos= datosDF.select("_c32").distinct().count() //=1
+// Vemos que es valoresDistintos es 1, con lo cual se puede elimnar esta columna, ya que ha sido un error ya que en el ultimo header se ha añadido una ","despues
+val datosDF_2=datosDF.drop("_c32")
+// donde: 
+
+datosDF_2.printSchema() // dataFrame correcto
+
+
+//vamos a ver que valores nulos tenemos
+val instanciasConNulos=datosDF_2.count() - datosDF_2.na.drop().count()
+println("INSTANCIAS CON NULOS")
+println(instanciasConNulos) //no hay nulos
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//DISTRIBUCION DE CLASES
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+println("DISTRIBUCION DE CLASE")
+
+val distribucion_Maligno= ((datosDF_2.filter(datosDF_2("diagnosis")==="M").count).toDouble / (datosDF_2.select("diagnosis").count).toDouble)*100
+val distribucion_Benigno= ((datosDF_2.filter(datosDF_2("diagnosis")==="B").count).toDouble / (datosDF_2.select("diagnosis").count).toDouble)*100
+
+// Vemos que hay un cierto equilibrio en la distribución de clases
+println ("Maligno %")
+println (distribucion_Maligno)
+println ("Benigno %")
+println (distribucion_Benigno)
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//DATA SPLIT  TRAINING & TEST  (el split de los datos de training en 2%, 5% ... se hace posteriormente)
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+//dividimos en datos de trainning 75% y datos de test 25%
+val dataSplits= datosDF_2.randomSplit(Array(0.75, 0.25))
+val datosDFLabeled_trainning = dataSplits(0)
+val datosDFLabeled_test = dataSplits(1)
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//FEATURIZATION -> PREPARAMOS INSTANCIAS
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+//seleccionamos solo los nombres de las columnas de features 
+val datosDFSinClaseSoloFeatures=datosDF_2.columns.diff(Array("diagnosis"))
+
+//creamos las instancias
+//VectorAssembler para generar una array de valores para las features
+val datosFeaturesLabelPipeline= new VectorAssembler().setOutputCol("features").setInputCols(datosDFSinClaseSoloFeatures)
+
+// StringIndexer para pasar el valor categorico a double de la clase , para la features no utilizamos pq ya son doubles. 
+val indiceClasePipeline = new StringIndexer().setInputCol("diagnosis").setOutputCol("label")
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//PIPELINE FEATURIZATION para Breast Cancer Wisconsin
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+//generamos el pipeline
+val featurizationPipelineBCW = new Pipeline().setStages(Array(
+                                              datosFeaturesLabelPipeline,
+                                              indiceClasePipeline)
+                                                    )
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//PIPELINE  Y EVALUACION PARA TODOS LOS CLASIFICADORES BASE
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+// instancia de todos los clasificadores que vamos a utilizar
+val instanciaTrainingPipelineDT = new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineRF = new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineNB = new NaiveBayes().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineLR = new LogisticRegression().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineLSVM = new LinearSVC().setFeaturesCol("features").setLabelCol("label")
+
+
+// array de instancias para cada clasificador base
+val arrayInstanciasClasificadores:Array[(String,PipelineStage)] = Array(("DT",instanciaTrainingPipelineDT),
+                                       ("LR",instanciaTrainingPipelineLR),
+                                       ("RF",instanciaTrainingPipelineRF),
+                                       ("NB",instanciaTrainingPipelineNB),
+                                       ("LSVM",instanciaTrainingPipelineLSVM) 
+                                      )
+
+
+
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//preparamos los parametros:  
+// 1.- tipo clasificadores, 
+// 2.- porcentaje .... (la informacion que esta en el DataFrame de resultados)
+// 3.- tipo de datos en esta caso breast cancer wisconsin --> BCW
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+val clasificadoresBase = Array ("DT","LR","RF","NB","LSVM")
+val porcentajeLabeled = Array(0.02,0.05,0.10,0.30)
+val datosCodigo = "BCW"
+
+
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// CREAMOS EL TEMPLATE DE DATAFRAME PARA LOS RESULTADOS
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+val breastCancerWisconResultados = generadorDataFrameResultados(datosCodigo,clasificadoresBase,porcentajeLabeled)
+
+
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// PIPELINE FINAL AUTOMATIZADO PARA CADA CLASIFICADOR
+//
+// FEATURIZATIO (BCW) --> CLASIFICACOR (DT) --> RESUTADO
+//                    --> CLASIFICACOR (RF) --> RESUTADO
+//                    --> CLASIFICACOR (NB) --> RESUTADO
+//                    --> .....
+//                    --> .....
+//                    --> CLASIFICACOR (XX) --> RESUTADO
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+// generamos los pipelines para cada clasificador base:
+val generadorPipelinePorClasificador = generadorPipelinesPorClasificador(arrayInstanciasClasificadores,featurizationPipelineBCW)
+
+//una vez tenemos el array de pipelines clasificadores entrenamos el modelo, generamos los resultados y los guardamos en un DataFrame
+val resultados_BCW=generadorModeloResutladosCompleto(datosDFLabeled_test,
+                                  datosDFLabeled_trainning,
+                                  generadorPipelinePorClasificador,
+                                  breastCancerWisconResultados,
+                                  porcentajeLabeled,
+                                  clasificadoresBase)
+
+resultados_BCW.show()
+
+
+
+// COMMAND ----------
+
+display(resultados_BCW.withColumn("accuracy",col("accuracy")*100))
