@@ -95,15 +95,19 @@ def generadorModeloResutladosCompleto(datosTest:DataFrame,
       
       // split datos cogemos X% para labeled data de los datos de trainning 
     
-      val dataSp=  datosTraining.randomSplit(Array(posPorcentaje, 1-posPorcentaje))//,seed = 11L)
-      val datosTrainningSplited= dataSp(0)
-      
+      val dataSp=  datosTraining.randomSplit(Array(posPorcentaje, 1-posPorcentaje),seed = 11L)
+      val datosTrainningSplited=dataSp(0)
       for (posPipeline <- 0 to (modelosPipeline.size-1)){
-
         //miramos que clasificador base es para despues poner su resultado en la posicion correspondiente dentro del DataFrame
         if (modelosPipeline(posPipeline)._1.contentEquals(posClasi)){ 
-        
           // entrenamos el modelo DT para diferentes %
+          println("porcentaje")
+          println(posPorcentaje)
+          println("clasificador")
+          println(posClasi)
+          println("datos")
+          println(datosTrainningSplited.count())
+          println(datosTest.count())
           var model = modelosPipeline(posPipeline)._2.fit(datosTrainningSplited)
 
           // montar un for con tres iteraciones para buscar un error coerente cuando los datos pequeños ¿?¿?
@@ -115,6 +119,8 @@ def generadorModeloResutladosCompleto(datosTest:DataFrame,
           
           // miramos cada uno de los aciertos en funciuon de las profundidades
           var acierto = metrics.accuracy
+          println ("resultado")
+          println(acierto)
 
           //Aqui ira el resultado en el nuevo dataFrame newdf
           newdf = newdf.withColumn("accuracy",when(newdf("porcentajeEtiquetado")===posPorcentaje && newdf("clasificador")===posClasi, acierto).
@@ -147,7 +153,7 @@ def generadorPipelinesPorClasificador(instanciasModelos:Array[(String,PipelineSt
     // Generamos los Pipelines para cada clasificador
     val pipeline = new Pipeline().setStages(Array(
                                                   featurization,
-                                                  instanciasModelos(posicion)._2 // cogemos solo el stage del pipeline
+                                                  instanciasModelos(posicion)._2 // cogemos solo el stage de la array
                                                    ))
     
     salida(posicion) = (instanciasModelos(posicion)._1,pipeline) // ponemos en la array el clasificador con su pipeline--> clasificador,pipeline
@@ -156,6 +162,28 @@ def generadorPipelinesPorClasificador(instanciasModelos:Array[(String,PipelineSt
   }
   salida
 }
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// creacion un pipelineStage para cada columna de features de conversion de categorico a continuo
+//salida de array[PipelineStage]
+//*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+def indexStringColumnsStagePipeline(df:DataFrame,cols:Array[String]):(Pipeline,Array[String])= {
+  var intermedioStages:Array[(PipelineStage)] = new Array[(PipelineStage)](cols.size)
+  var posicion = 0
+  for(col <-cols) {
+    val si= new StringIndexer().setInputCol(col).setOutputCol(col+"-num")
+    intermedioStages(posicion) = si.setHandleInvalid("keep")
+    posicion = posicion +1
+  }
+  val salida = new Pipeline().setStages(intermedioStages)
+  (salida,df.columns.diff(cols))
+}
+
+
+
+
 
 
 // COMMAND ----------
@@ -309,7 +337,7 @@ val breastCancerWisconResultados = generadorDataFrameResultados(datosCodigo,clas
 //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // PIPELINE FINAL AUTOMATIZADO PARA CADA CLASIFICADOR
 //
-// FEATURIZATIO (BCW) --> CLASIFICACOR (DT) --> RESUTADO
+// FEATURIZATIONT(BCW)--> CLASIFICACOR (DT) --> RESUTADO
 //                    --> CLASIFICACOR (RF) --> RESUTADO
 //                    --> CLASIFICACOR (NB) --> RESUTADO
 //                    --> .....
@@ -336,3 +364,415 @@ resultados_BCW.show()
 // COMMAND ----------
 
 display(resultados_BCW.withColumn("accuracy",col("accuracy")*100))
+
+// COMMAND ----------
+
+// DBTITLE 1,SupervisadoClasificadoresBase - Adult Income(DT, LR, RF,NB, LSVM)
+// LIBRERIAS necesarias (IMPORTACIONES)
+
+import org.apache.spark.sql.types.{StructType,StructField,StringType,DoubleType}
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.ml.feature.StringIndexer
+import org.apache.spark.ml.feature.StringIndexerModel
+import org.apache.spark.ml.feature.VectorAssembler
+import org.apache.spark.mllib.evaluation.MulticlassMetrics
+import org.apache.spark.ml.{Pipeline, PipelineModel}
+import scala.util.control.Breaks._
+
+// clasificadores Base
+import org.apache.spark.ml.classification.DecisionTreeClassifier
+import org.apache.spark.ml.classification.LogisticRegression
+import org.apache.spark.ml.classification.NaiveBayes
+import org.apache.spark.ml.classification.RandomForestClassifier
+import org.apache.spark.ml.classification.LinearSVC
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// LECTURA
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+
+
+
+
+//leemos el documento
+val PATH="dbfs:/FileStore/tables/"
+val datos="adult.data"
+
+
+val datosDF = spark.read.format("csv")
+  .option("sep", ",")
+  .option("inferSchema", "true")
+  .option("header", "false")
+  .load(PATH + datos)
+datosDF.printSchema() 
+
+val DATA_test="adult.test"
+val lines_test= sc.textFile(PATH + DATA_test)
+val DATA_training="adult.data"
+val lines_training= sc.textFile(PATH + DATA_training)
+
+
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//CLEANING y PRE-PROCESADO
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//Eliminamos lineasvacias
+
+// training
+val nonEmpty_training= lines_training.filter(_.nonEmpty).filter(y => ! y.contains("?")) // Dado que representa en el peor de los casos un 3-4% approx, lo eliminamos
+val parsed_training= nonEmpty_training.map(line => line.split(","))
+
+
+// test
+val nonEmpty_test= lines_test.filter(_.nonEmpty).filter(y => ! y.contains("?"))
+val parsed_test= nonEmpty_test.map(line => line.split(",")).zipWithIndex().filter(_._2 >= 1).keys // eliminamos la primera posicion del conjunto test
+
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//CREACION DEL ESQUEMA  Y DE LOS DATA FRAMES TANTO DE TEST COMO DE TRAINING
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+// generamos el esquema de los datos
+val adultSchema= StructType(Array(
+  StructField("age",StringType,true),  // continuos
+  StructField("workclass",StringType,true),
+  StructField("fnlwgt",StringType,true), // continuos
+  StructField("education",StringType,true),
+  StructField("education_num",StringType,true),// continuos
+  StructField("marital_status",StringType,true),
+  StructField("occupation",StringType,true),
+  StructField("race",StringType,true),
+   StructField("relationship",StringType,true),
+  StructField("sex",StringType,true),
+  StructField("capital_gain",StringType,true), // continuos
+  StructField("capital_loss",StringType,true),// continuos
+  StructField("hours_per_week",StringType,true), // continuos
+  StructField("native_country",StringType,true),
+  StructField("clase",StringType,true)
+))
+
+
+//creamos los data sets con la informacion del esquema antes generado
+val income_testDF= spark.createDataFrame(parsed_test.map(Row.fromSeq(_)), adultSchema)
+
+val income_trainingDF= spark.createDataFrame(parsed_training.map(Row.fromSeq(_)), adultSchema)
+
+// convertimos los valores continuos a double los datos de trainning
+val income_trainningDF_converted = income_trainingDF.withColumn("fnlwgt2", 'fnlwgt.cast("Double")).select('age, 'workclass, 'fnlwgt2 as 'fnlwgt,'education, 'education_num,'marital_status,'occupation,'relationship,'race,'sex,'capital_gain,'capital_loss,'hours_per_week,'native_country,'clase).withColumn("age2", 'age.cast("Double")).select('age2 as 'age, 'workclass,'fnlwgt,'education,  'education_num,'marital_status,'occupation,'relationship,'race,'sex,'capital_gain,'capital_loss,'hours_per_week,'native_country,'clase).
+withColumn("education_num2", 'education_num.cast("Double")).select('age, 'workclass,'fnlwgt,'education,'education_num2 as 'education_num,'marital_status,'occupation,'relationship,'race,'sex,'capital_gain,'capital_loss,'hours_per_week,'native_country,'clase).
+withColumn("capital_gain2", 'capital_gain.cast("Double")).select('age, 'workclass,'fnlwgt,'education, 'education_num,'marital_status,'occupation,'relationship,'race,'sex,'capital_gain2 as 'capital_gain,'capital_loss,'hours_per_week,'native_country,'clase).
+withColumn("capital_loss2", 'capital_loss.cast("Double")).select('age, 'workclass,'fnlwgt,'education, 'education_num,'marital_status,'occupation,'relationship,'race,'sex,'capital_gain,'capital_loss2 as 'capital_loss,'hours_per_week,'native_country,'clase).
+withColumn("hours_per_week2", 'hours_per_week.cast("Double")).select('age, 'workclass,'fnlwgt,'education, 'education_num,'marital_status,'occupation,'relationship,'race,'sex,'capital_gain,'capital_loss,'hours_per_week2 as 'hours_per_week,'native_country,'clase)
+
+// convertimos los valores continuos a double los datos de test
+val income_testDF_converted = income_testDF.withColumn("fnlwgt2", 'fnlwgt.cast("Double")).select('age, 'workclass, 'fnlwgt2 as 'fnlwgt,'education, 'education_num,'marital_status,'occupation,'relationship,'race,'sex,'capital_gain,'capital_loss,'hours_per_week,'native_country,'clase).
+withColumn("age2", 'age.cast("Double")).select('age2 as 'age, 'workclass,'fnlwgt,'education,  'education_num,'marital_status,'occupation,'relationship,'race,'sex,'capital_gain,'capital_loss,'hours_per_week,'native_country,'clase).
+withColumn("education_num2", 'education_num.cast("Double")).select('age, 'workclass,'fnlwgt,'education,'education_num2 as 'education_num,'marital_status,'occupation,'relationship,'race,'sex,'capital_gain,'capital_loss,'hours_per_week,'native_country,'clase).
+withColumn("capital_gain2", 'capital_gain.cast("Double")).select('age, 'workclass,'fnlwgt,'education, 'education_num,'marital_status,'occupation,'relationship,'race,'sex,'capital_gain2 as 'capital_gain,'capital_loss,'hours_per_week,'native_country,'clase).
+withColumn("capital_loss2", 'capital_loss.cast("Double")).select('age, 'workclass,'fnlwgt,'education, 'education_num,'marital_status,'occupation,'relationship,'race,'sex,'capital_gain,'capital_loss2 as 'capital_loss,'hours_per_week,'native_country,'clase).
+withColumn("hours_per_week2", 'hours_per_week.cast("Double")).select('age, 'workclass,'fnlwgt,'education, 'education_num,'marital_status,'occupation,'relationship,'race,'sex,'capital_gain,'capital_loss,'hours_per_week2 as 'hours_per_week,'native_country,'clase)
+
+
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//DISTRIBUCION DE CLASES
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+println("DISTRIBUCION DE CLASE")
+
+
+//verificamos la cantidad de lineas / elementos que hay para ver si se adapta a lo que dice practica 
+val count_lines_test = lines_test.count() // 16k approx
+//verificamos la cantidad de lineas / elementos que hay para ver si se adapta a lo que dice practica 
+val count_lines_training = lines_training.count() // 32k approx
+
+println("NUMERO DE REGISTROS")
+println("Numero de registros de entrenamiento: " + count_lines_training)
+println("Numero de registros de test: " + count_lines_test)
+
+// distribuvion de clase:
+
+val distribucionClase_Menor_igual_50 = (income_trainingDF.filter(income_trainingDF("clase")===" <=50K").count).toDouble / (income_trainingDF.select("clase").count).toDouble
+val distribucionClase_Mayor_50k =(income_trainingDF.filter(income_trainingDF("clase")===" >50K").count).toDouble / (income_trainingDF.select("clase").count).toDouble
+
+
+println("Distribucion de clase mayor a de 50k: " + distribucionClase_Mayor_50k)
+println ("Distribucion de clase menor o igual a 50k:" +distribucionClase_Menor_igual_50)
+// la distribucion nos indica una complejidad aceptable tiene una relacion de 25%  - 75%
+
+val distribucionAdult = Array(distribucionClase_Menor_igual_50,distribucionClase_Mayor_50k)
+val diferentesClases = income_trainingDF.select("clase").distinct.count()
+
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//DATA SPLIT  TRAINING & TEST  (el split de los datos de training en 2%, 5% ... se hace posteriormente)
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+//dividimos en datos de trainning 75% y datos de test 25%
+val dataSplits= income_trainningDF_converted.randomSplit(Array(0.70, 0.30),seed = 8L)
+val datosDFLabeled_trainningAdult = dataSplits(0)
+val datosDFLabeled_testAdult = dataSplits(1)
+
+
+// para este caso no vamos hacer split ya que tenemos dos conjunto de datos para trainning y test
+
+//val datosDFLabeled_testAdult = income_testDF_converted
+//val datosDFLabeled_trainningAdult = income_trainningDF_converted
+
+/*
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//sin PIPELINE
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// funcion donde introducimos columnas nominales y las pasa a valores numericos (o continuos)
+def indexStringColumns(df:DataFrame, cols:Array[String]):DataFrame= {
+  var newdf= df
+  for(col <-cols) {
+    val si= new StringIndexer().setInputCol(col).setOutputCol(col+"-num")
+    val sm:StringIndexerModel= si.fit(newdf)
+    newdf= sm.transform(newdf).drop(col)
+    newdf= newdf.withColumnRenamed(col+"-num", col)
+  }
+  newdf
+}
+
+// para este caso no vamos hacer split ya que tenemos dos conjunto de datos para trainning y test
+
+//val datosDFLabeled_testAdult = income_testDF_converted
+//val datosDFLabeled_trainningAdult = income_trainningDF_converted
+
+
+val incomeDFNumericTraining= indexStringColumns(income_trainningDF_converted, Array("workclass","education","marital_status", "occupation", "race", "relationship","sex","native_country"))
+val incomeDFNumericTest= indexStringColumns(income_testDF_converted, Array("workclass","education","marital_status", "occupation", "race", "relationship","sex","native_country"))
+
+
+// creamos dos columnas para las features y para la clase (labels)
+// Para el conjunto TRAINING
+// fit para luego aplicar el transformer
+val claseNumericTraining= new VectorAssembler().setOutputCol("features").setInputCols(incomeDFNumericTraining.columns.diff(Array("clase")))
+// apliacamos
+val incomeDFlpointsTraining= claseNumericTraining.transform(incomeDFNumericTraining).select("features", "clase")
+
+//Para el conjunto TEST
+// fit para luego aplicar el transformer
+val claseNumericTest= new VectorAssembler().setOutputCol("features").setInputCols(incomeDFNumericTest.columns.diff(Array("clase")))
+// apliacamos
+val incomeDFlpointsTest= claseNumericTest.transform(incomeDFNumericTest).select("features", "clase")
+
+// creamos la etiqueta de clase para que sea un entero codificado como un double
+val indiceClase= new StringIndexer().setInputCol("clase").setOutputCol("label")
+val IncomFeaturesLabelTrainingDF= indiceClase.fit(incomeDFlpointsTraining).transform(incomeDFlpointsTraining).drop("clase")
+val IncomFeaturesLabelTestDF= indiceClase.fit(incomeDFlpointsTest).transform(incomeDFlpointsTest).drop("clase")
+
+
+// ENTRENAMOS EL MODELO:
+//Tenemenos la estructura para entrenar y crear el modelo
+// Creamos una instancia de DecisionTreeClassifier
+val DTIncomeTraining=new DecisionTreeClassifier()
+
+// tenemos que entrenar el modelo
+// configuramos los parametros para el modelo con una profundidad 3 i los bins requeridos, por otro lado mantenemos los valores por defecto:
+
+val impureza = "entropy"
+val maxProf= 3
+val maxBins=41 // ya que hemos eliminado los "?"
+DTIncomeTraining.setMaxDepth(maxProf)
+DTIncomeTraining.setMaxBins(maxBins)
+DTIncomeTraining.setImpurity(impureza)
+
+//Creamos el transformer (modelo) luego lo lanzaremos con el conjunto de datos test
+val DTIncomeModel=DTIncomeTraining.fit(IncomFeaturesLabelTrainingDF)
+
+// transfom y predecimos
+val predictionsAndLabelsDF= DTIncomeModel.transform(IncomFeaturesLabelTestDF).select("prediction", "label")
+/* Necesitamos un RDD de predicciones y etiquetas: es MLlib*/
+val predictionsAndLabelsRDD=predictionsAndLabelsDF.rdd.map(row=> (row.getDouble(0), row.getDouble(1)))
+
+
+// RESULTADO DEL MODELO
+val metrics= new MulticlassMetrics(predictionsAndLabelsRDD)
+val acierto = metrics.accuracy
+val error = 1 -acierto
+
+*/
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//FEATURIZATION -> PREPARAMOS INSTANCIAS
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+// StringIndexer para pasar el valor categorico a double de la clase 
+val indiceClasePipelineAdult = new StringIndexer().setInputCol("clase").setOutputCol("label")
+
+// valores a convertir a continuos
+val valoresCategoricosFeatures= Array("workclass","education","marital_status", "occupation", "race", "relationship","sex","native_country")
+//StringIndexer para la features
+val indexStringFeaturesLlamada = indexStringColumnsStagePipeline(datosDFLabeled_trainningAdult,valoresCategoricosFeatures)
+
+val indexStringFeaturesTodasNumAdult = indexStringFeaturesLlamada._1
+val columnnasYaNumericasAdult = indexStringFeaturesLlamada._2
+/*
+val iworkclass = new StringIndexer().setInputCol("workclass").setOutputCol("workclass-num")
+val ieducation = new StringIndexer().setInputCol("education").setOutputCol("education-num")
+val imarital_status = new StringIndexer().setInputCol("marital_status").setOutputCol("marital_status-num")
+val ioccupation = new StringIndexer().setInputCol("occupation").setOutputCol("occupation-num")
+val irace = new StringIndexer().setInputCol("race").setOutputCol("race-num")
+val irelationship = new StringIndexer().setInputCol("relationship").setOutputCol("relationship-num")
+val isex = new StringIndexer().setInputCol("sex").setOutputCol("sex-num")
+val inative_country = new StringIndexer().setInputCol("native_country").setOutputCol("native_country-num")
+*/
+
+
+//seleccionamos solo los nombres de las columnas de features 
+//val datosDFSinClaseSoloFeaturesAdult=datosDFLabeled_trainningAdult.columns.diff(Array("clase"))
+
+
+//val datosDFSinClaseSoloFeaturesAdult = Array("age", "workclass-num", "fnlwgt", "education-num", "education_num", "marital_status-num", "occupation-num", "relationship-num", "race-num", "sex-num", "capital_gain", "capital_loss", "hours_per_week", "native_country-num")
+
+// juntamos las columnas convertidas a continuo con StringIndexer y las ya numericas/continuas
+val datosDFSinClaseSoloFeaturesAdult = valoresCategoricosFeatures.par.map(x=>x+"-num").toArray.union(columnnasYaNumericasAdult)
+
+
+//creamos las instancias
+//VectorAssembler para generar una array de valores para las features
+val assemblerFeaturesLabelPipelineAdult= new VectorAssembler().setOutputCol("features").setInputCols(datosDFSinClaseSoloFeaturesAdult.diff(Array("clase"))) // sin la clase o label
+
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//PIPELINE FEATURIZATION para Breast Cancer Wisconsin
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+//generamos el pipeline poniendo correctamente el orden
+
+val featurizationPipelineAdult = new Pipeline().setStages(Array(indexStringFeaturesTodasNumAdult,
+                                                                assemblerFeaturesLabelPipelineAdult,
+                                                                indiceClasePipelineAdult))
+
+
+
+
+
+/*
+val featurizationPipelineAdult = new Pipeline().setStages(Array(iworkclass,
+                                                                ieducation,
+                                                                imarital_status,
+                                                                ioccupation,
+                                                                irace,
+                                                                irelationship,
+                                                                isex,
+                                                                inative_country))
+                                                                //assemblerFeaturesLabelPipelineAdult,
+                                                                //indiceClasePipelineAdult))
+*/
+val feat =featurizationPipelineAdult.fit(datosDFLabeled_trainningAdult).transform(datosDFLabeled_trainningAdult)
+val feat2 = feat.select("features","label")
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//PIPELINE  Y EVALUACION PARA TODOS LOS CLASIFICADORES BASE
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+// instancia de todos los clasificadores que vamos a utilizar
+val instanciaTrainingPipelineDT = new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label")
+instanciaTrainingPipelineDT.setMaxBins(42) // se necesita el numero maximo de opciones en las features ya que es superior que el standard
+val instanciaTrainingPipelineRF = new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label")
+instanciaTrainingPipelineRF.setMaxBins(42)
+val instanciaTrainingPipelineNB = new NaiveBayes().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineLR = new LogisticRegression().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineLSVM = new LinearSVC().setFeaturesCol("features").setLabelCol("label")
+
+
+// array de instancias para cada clasificador base
+val arrayInstanciasClasificadores:Array[(String,PipelineStage)] = Array(("DT",instanciaTrainingPipelineDT),
+                                       ("LR",instanciaTrainingPipelineLR),
+                                       ("RF",instanciaTrainingPipelineRF),
+                                       ("NB",instanciaTrainingPipelineNB),
+                                       ("LSVM",instanciaTrainingPipelineLSVM) 
+                                      )
+
+
+
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//preparamos los parametros:  
+// 1.- tipo clasificadores, 
+// 2.- porcentaje .... (la informacion que esta en el DataFrame de resultados)
+// 3.- tipo de datos en esta caso breast cancer wisconsin --> BCW
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+val clasificadoresBase = Array ("DT","LR","RF","NB","LSVM")
+val porcentajeLabeled = Array(0.01,0.05,0.10,0.30)
+val datosCodigo = "ADULT"
+
+
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// CREAMOS EL TEMPLATE DE DATAFRAME PARA LOS RESULTADOS
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+val adultResultados = generadorDataFrameResultados(datosCodigo,clasificadoresBase,porcentajeLabeled)
+
+
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// PIPELINE FINAL AUTOMATIZADO PARA CADA CLASIFICADOR
+//
+// FEATURIZATIO (BCW) --> CLASIFICACOR (DT) --> RESUTADO
+//                    --> CLASIFICACOR (RF) --> RESUTADO
+//                    --> CLASIFICACOR (NB) --> RESUTADO
+//                    --> .....
+//                    --> .....
+//                    --> CLASIFICACOR (XX) --> RESUTADO
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+// generamos los pipelines para cada clasificador base:
+val generadorPipelinePorClasificadorAdult = generadorPipelinesPorClasificador(arrayInstanciasClasificadores,featurizationPipelineAdult)
+
+//instanciaTrainingPipelineDT.setMaxBins(41)
+//val modeloDT = instanciaTrainingPipelineDT.fit(feat)
+
+//val arbol = new DecisionTreeClassifier()
+//arbol.setMaxBins(42)
+//val modeloDT = arbol.fit(feat2)
+
+//val pipeTest  = new Pipeline().setStages(Array(featurizationPipelineAdult,instanciaTrainingPipelineDT))
+
+/*
+val modeloDT=generadorPipelinePorClasificadorAdult(0)._2.fit(datosDFLabeled_trainningAdult)
+
+val predicciones=modeloDT.transform(datosDFLabeled_testAdult).select("prediction", "label")
+          val predictionsAndLabelsRDD=predicciones.rdd.map(row=> (row.getDouble(0), row.getDouble(1)))
+
+          val metrics= new MulticlassMetrics(predictionsAndLabelsRDD)
+          
+          // miramos cada uno de los aciertos en funciuon de las profundidades
+          val acierto = metrics.accuracy
+
+
+//una vez tenemos el array de pipelines clasificadores entrenamos el modelo, generamos los resultados y los guardamos en un DataFrame
+*/
+
+
+val resultados_ADULT=generadorModeloResutladosCompleto(datosDFLabeled_testAdult,
+                                  datosDFLabeled_trainningAdult,
+                                  generadorPipelinePorClasificadorAdult,
+                                  adultResultados,
+                                  porcentajeLabeled,
+                                  clasificadoresBase)
+
+resultados_ADULT.show()
+
+
+
+
+
+
+
+
+// COMMAND ----------
+
+display(resultados_ADULT)
