@@ -188,7 +188,7 @@ def indexStringColumnsStagePipeline(df:DataFrame,cols:Array[String]):(Pipeline,A
 
 // COMMAND ----------
 
-// DBTITLE 1,SupervisadoClasificadoresBase - Breast Cancser Wisconsin  (DT, LR, RF,NB, LSVM)
+// DBTITLE 1,SupervisadoClasificadoresBase - BCW  (DT, LR, RF,NB, LSVM)
 // LIBRERIAS necesarias (IMPORTACIONES)
 
 import org.apache.spark.sql.types.{StructType,StructField,StringType,DoubleType}
@@ -264,7 +264,7 @@ println (distribucion_Benigno)
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 //dividimos en datos de trainning 75% y datos de test 25%
-val dataSplits= datosDF_2.randomSplit(Array(0.75, 0.25))
+val dataSplits= datosDF_2.randomSplit(Array(0.75, 0.25),seed = 8L)
 val datosDFLabeled_trainning = dataSplits(0)
 val datosDFLabeled_test = dataSplits(1)
 
@@ -280,7 +280,7 @@ val datosDFSinClaseSoloFeatures=datosDF_2.columns.diff(Array("diagnosis"))
 val datosFeaturesLabelPipeline= new VectorAssembler().setOutputCol("features").setInputCols(datosDFSinClaseSoloFeatures)
 
 // StringIndexer para pasar el valor categorico a double de la clase , para la features no utilizamos pq ya son doubles. 
-val indiceClasePipeline = new StringIndexer().setInputCol("diagnosis").setOutputCol("label")
+val indiceClasePipeline = new StringIndexer().setInputCol("diagnosis").setOutputCol("label").setHandleInvalid("keep")
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 //PIPELINE FEATURIZATION para Breast Cancer Wisconsin
@@ -323,7 +323,7 @@ val arrayInstanciasClasificadores:Array[(String,PipelineStage)] = Array(("DT",in
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 val clasificadoresBase = Array ("DT","LR","RF","NB","LSVM")
-val porcentajeLabeled = Array(0.02,0.05,0.10,0.30)
+val porcentajeLabeled = Array(0.01,0.05,0.10,0.30)
 val datosCodigo = "BCW"
 
 
@@ -392,11 +392,6 @@ import org.apache.spark.ml.classification.LinearSVC
 // LECTURA
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-
-
-
-
-
 //leemos el documento
 val PATH="dbfs:/FileStore/tables/"
 val datos="adult.data"
@@ -409,8 +404,7 @@ val datosDF = spark.read.format("csv")
   .load(PATH + datos)
 datosDF.printSchema() 
 
-val DATA_test="adult.test"
-val lines_test= sc.textFile(PATH + DATA_test)
+
 val DATA_training="adult.data"
 val lines_training= sc.textFile(PATH + DATA_training)
 
@@ -426,10 +420,6 @@ val lines_training= sc.textFile(PATH + DATA_training)
 val nonEmpty_training= lines_training.filter(_.nonEmpty).filter(y => ! y.contains("?")) // Dado que representa en el peor de los casos un 3-4% approx, lo eliminamos
 val parsed_training= nonEmpty_training.map(line => line.split(","))
 
-
-// test
-val nonEmpty_test= lines_test.filter(_.nonEmpty).filter(y => ! y.contains("?"))
-val parsed_test= nonEmpty_test.map(line => line.split(",")).zipWithIndex().filter(_._2 >= 1).keys // eliminamos la primera posicion del conjunto test
 
 //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 //CREACION DEL ESQUEMA  Y DE LOS DATA FRAMES TANTO DE TEST COMO DE TRAINING
@@ -456,7 +446,6 @@ val adultSchema= StructType(Array(
 
 
 //creamos los data sets con la informacion del esquema antes generado
-val income_testDF= spark.createDataFrame(parsed_test.map(Row.fromSeq(_)), adultSchema)
 
 val income_trainingDF= spark.createDataFrame(parsed_training.map(Row.fromSeq(_)), adultSchema)
 
@@ -467,15 +456,6 @@ withColumn("capital_gain2", 'capital_gain.cast("Double")).select('age, 'workclas
 withColumn("capital_loss2", 'capital_loss.cast("Double")).select('age, 'workclass,'fnlwgt,'education, 'education_num,'marital_status,'occupation,'relationship,'race,'sex,'capital_gain,'capital_loss2 as 'capital_loss,'hours_per_week,'native_country,'clase).
 withColumn("hours_per_week2", 'hours_per_week.cast("Double")).select('age, 'workclass,'fnlwgt,'education, 'education_num,'marital_status,'occupation,'relationship,'race,'sex,'capital_gain,'capital_loss,'hours_per_week2 as 'hours_per_week,'native_country,'clase)
 
-// convertimos los valores continuos a double los datos de test
-val income_testDF_converted = income_testDF.withColumn("fnlwgt2", 'fnlwgt.cast("Double")).select('age, 'workclass, 'fnlwgt2 as 'fnlwgt,'education, 'education_num,'marital_status,'occupation,'relationship,'race,'sex,'capital_gain,'capital_loss,'hours_per_week,'native_country,'clase).
-withColumn("age2", 'age.cast("Double")).select('age2 as 'age, 'workclass,'fnlwgt,'education,  'education_num,'marital_status,'occupation,'relationship,'race,'sex,'capital_gain,'capital_loss,'hours_per_week,'native_country,'clase).
-withColumn("education_num2", 'education_num.cast("Double")).select('age, 'workclass,'fnlwgt,'education,'education_num2 as 'education_num,'marital_status,'occupation,'relationship,'race,'sex,'capital_gain,'capital_loss,'hours_per_week,'native_country,'clase).
-withColumn("capital_gain2", 'capital_gain.cast("Double")).select('age, 'workclass,'fnlwgt,'education, 'education_num,'marital_status,'occupation,'relationship,'race,'sex,'capital_gain2 as 'capital_gain,'capital_loss,'hours_per_week,'native_country,'clase).
-withColumn("capital_loss2", 'capital_loss.cast("Double")).select('age, 'workclass,'fnlwgt,'education, 'education_num,'marital_status,'occupation,'relationship,'race,'sex,'capital_gain,'capital_loss2 as 'capital_loss,'hours_per_week,'native_country,'clase).
-withColumn("hours_per_week2", 'hours_per_week.cast("Double")).select('age, 'workclass,'fnlwgt,'education, 'education_num,'marital_status,'occupation,'relationship,'race,'sex,'capital_gain,'capital_loss,'hours_per_week2 as 'hours_per_week,'native_country,'clase)
-
-
 
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -485,8 +465,6 @@ withColumn("hours_per_week2", 'hours_per_week.cast("Double")).select('age, 'work
 println("DISTRIBUCION DE CLASE")
 
 
-//verificamos la cantidad de lineas / elementos que hay para ver si se adapta a lo que dice practica 
-val count_lines_test = lines_test.count() // 16k approx
 //verificamos la cantidad de lineas / elementos que hay para ver si se adapta a lo que dice practica 
 val count_lines_training = lines_training.count() // 32k approx
 
@@ -519,86 +497,6 @@ val datosDFLabeled_trainningAdult = dataSplits(0)
 val datosDFLabeled_testAdult = dataSplits(1)
 
 
-// para este caso no vamos hacer split ya que tenemos dos conjunto de datos para trainning y test
-
-//val datosDFLabeled_testAdult = income_testDF_converted
-//val datosDFLabeled_trainningAdult = income_trainningDF_converted
-
-/*
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//sin PIPELINE
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-// funcion donde introducimos columnas nominales y las pasa a valores numericos (o continuos)
-def indexStringColumns(df:DataFrame, cols:Array[String]):DataFrame= {
-  var newdf= df
-  for(col <-cols) {
-    val si= new StringIndexer().setInputCol(col).setOutputCol(col+"-num")
-    val sm:StringIndexerModel= si.fit(newdf)
-    newdf= sm.transform(newdf).drop(col)
-    newdf= newdf.withColumnRenamed(col+"-num", col)
-  }
-  newdf
-}
-
-// para este caso no vamos hacer split ya que tenemos dos conjunto de datos para trainning y test
-
-//val datosDFLabeled_testAdult = income_testDF_converted
-//val datosDFLabeled_trainningAdult = income_trainningDF_converted
-
-
-val incomeDFNumericTraining= indexStringColumns(income_trainningDF_converted, Array("workclass","education","marital_status", "occupation", "race", "relationship","sex","native_country"))
-val incomeDFNumericTest= indexStringColumns(income_testDF_converted, Array("workclass","education","marital_status", "occupation", "race", "relationship","sex","native_country"))
-
-
-// creamos dos columnas para las features y para la clase (labels)
-// Para el conjunto TRAINING
-// fit para luego aplicar el transformer
-val claseNumericTraining= new VectorAssembler().setOutputCol("features").setInputCols(incomeDFNumericTraining.columns.diff(Array("clase")))
-// apliacamos
-val incomeDFlpointsTraining= claseNumericTraining.transform(incomeDFNumericTraining).select("features", "clase")
-
-//Para el conjunto TEST
-// fit para luego aplicar el transformer
-val claseNumericTest= new VectorAssembler().setOutputCol("features").setInputCols(incomeDFNumericTest.columns.diff(Array("clase")))
-// apliacamos
-val incomeDFlpointsTest= claseNumericTest.transform(incomeDFNumericTest).select("features", "clase")
-
-// creamos la etiqueta de clase para que sea un entero codificado como un double
-val indiceClase= new StringIndexer().setInputCol("clase").setOutputCol("label")
-val IncomFeaturesLabelTrainingDF= indiceClase.fit(incomeDFlpointsTraining).transform(incomeDFlpointsTraining).drop("clase")
-val IncomFeaturesLabelTestDF= indiceClase.fit(incomeDFlpointsTest).transform(incomeDFlpointsTest).drop("clase")
-
-
-// ENTRENAMOS EL MODELO:
-//Tenemenos la estructura para entrenar y crear el modelo
-// Creamos una instancia de DecisionTreeClassifier
-val DTIncomeTraining=new DecisionTreeClassifier()
-
-// tenemos que entrenar el modelo
-// configuramos los parametros para el modelo con una profundidad 3 i los bins requeridos, por otro lado mantenemos los valores por defecto:
-
-val impureza = "entropy"
-val maxProf= 3
-val maxBins=41 // ya que hemos eliminado los "?"
-DTIncomeTraining.setMaxDepth(maxProf)
-DTIncomeTraining.setMaxBins(maxBins)
-DTIncomeTraining.setImpurity(impureza)
-
-//Creamos el transformer (modelo) luego lo lanzaremos con el conjunto de datos test
-val DTIncomeModel=DTIncomeTraining.fit(IncomFeaturesLabelTrainingDF)
-
-// transfom y predecimos
-val predictionsAndLabelsDF= DTIncomeModel.transform(IncomFeaturesLabelTestDF).select("prediction", "label")
-/* Necesitamos un RDD de predicciones y etiquetas: es MLlib*/
-val predictionsAndLabelsRDD=predictionsAndLabelsDF.rdd.map(row=> (row.getDouble(0), row.getDouble(1)))
-
-
-// RESULTADO DEL MODELO
-val metrics= new MulticlassMetrics(predictionsAndLabelsRDD)
-val acierto = metrics.accuracy
-val error = 1 -acierto
-
-*/
 
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -607,7 +505,7 @@ val error = 1 -acierto
 
 
 // StringIndexer para pasar el valor categorico a double de la clase 
-val indiceClasePipelineAdult = new StringIndexer().setInputCol("clase").setOutputCol("label")
+val indiceClasePipelineAdult = new StringIndexer().setInputCol("clase").setOutputCol("label").setHandleInvalid("keep")
 
 // valores a convertir a continuos
 val valoresCategoricosFeatures= Array("workclass","education","marital_status", "occupation", "race", "relationship","sex","native_country")
@@ -616,36 +514,17 @@ val indexStringFeaturesLlamada = indexStringColumnsStagePipeline(datosDFLabeled_
 
 val indexStringFeaturesTodasNumAdult = indexStringFeaturesLlamada._1
 val columnnasYaNumericasAdult = indexStringFeaturesLlamada._2
-/*
-val iworkclass = new StringIndexer().setInputCol("workclass").setOutputCol("workclass-num")
-val ieducation = new StringIndexer().setInputCol("education").setOutputCol("education-num")
-val imarital_status = new StringIndexer().setInputCol("marital_status").setOutputCol("marital_status-num")
-val ioccupation = new StringIndexer().setInputCol("occupation").setOutputCol("occupation-num")
-val irace = new StringIndexer().setInputCol("race").setOutputCol("race-num")
-val irelationship = new StringIndexer().setInputCol("relationship").setOutputCol("relationship-num")
-val isex = new StringIndexer().setInputCol("sex").setOutputCol("sex-num")
-val inative_country = new StringIndexer().setInputCol("native_country").setOutputCol("native_country-num")
-*/
-
-
-//seleccionamos solo los nombres de las columnas de features 
-//val datosDFSinClaseSoloFeaturesAdult=datosDFLabeled_trainningAdult.columns.diff(Array("clase"))
-
-
-//val datosDFSinClaseSoloFeaturesAdult = Array("age", "workclass-num", "fnlwgt", "education-num", "education_num", "marital_status-num", "occupation-num", "relationship-num", "race-num", "sex-num", "capital_gain", "capital_loss", "hours_per_week", "native_country-num")
 
 // juntamos las columnas convertidas a continuo con StringIndexer y las ya numericas/continuas
 val datosDFSinClaseSoloFeaturesAdult = valoresCategoricosFeatures.par.map(x=>x+"-num").toArray.union(columnnasYaNumericasAdult)
 
-
-//creamos las instancias
 //VectorAssembler para generar una array de valores para las features
 val assemblerFeaturesLabelPipelineAdult= new VectorAssembler().setOutputCol("features").setInputCols(datosDFSinClaseSoloFeaturesAdult.diff(Array("clase"))) // sin la clase o label
 
 
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//PIPELINE FEATURIZATION para Breast Cancer Wisconsin
+//PIPELINE FEATURIZATION para Adult
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 //generamos el pipeline poniendo correctamente el orden
@@ -654,24 +533,6 @@ val featurizationPipelineAdult = new Pipeline().setStages(Array(indexStringFeatu
                                                                 assemblerFeaturesLabelPipelineAdult,
                                                                 indiceClasePipelineAdult))
 
-
-
-
-
-/*
-val featurizationPipelineAdult = new Pipeline().setStages(Array(iworkclass,
-                                                                ieducation,
-                                                                imarital_status,
-                                                                ioccupation,
-                                                                irace,
-                                                                irelationship,
-                                                                isex,
-                                                                inative_country))
-                                                                //assemblerFeaturesLabelPipelineAdult,
-                                                                //indiceClasePipelineAdult))
-*/
-val feat =featurizationPipelineAdult.fit(datosDFLabeled_trainningAdult).transform(datosDFLabeled_trainningAdult)
-val feat2 = feat.select("features","label")
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 //PIPELINE  Y EVALUACION PARA TODOS LOS CLASIFICADORES BASE
@@ -732,31 +593,6 @@ val adultResultados = generadorDataFrameResultados(datosCodigo,clasificadoresBas
 // generamos los pipelines para cada clasificador base:
 val generadorPipelinePorClasificadorAdult = generadorPipelinesPorClasificador(arrayInstanciasClasificadores,featurizationPipelineAdult)
 
-//instanciaTrainingPipelineDT.setMaxBins(41)
-//val modeloDT = instanciaTrainingPipelineDT.fit(feat)
-
-//val arbol = new DecisionTreeClassifier()
-//arbol.setMaxBins(42)
-//val modeloDT = arbol.fit(feat2)
-
-//val pipeTest  = new Pipeline().setStages(Array(featurizationPipelineAdult,instanciaTrainingPipelineDT))
-
-/*
-val modeloDT=generadorPipelinePorClasificadorAdult(0)._2.fit(datosDFLabeled_trainningAdult)
-
-val predicciones=modeloDT.transform(datosDFLabeled_testAdult).select("prediction", "label")
-          val predictionsAndLabelsRDD=predicciones.rdd.map(row=> (row.getDouble(0), row.getDouble(1)))
-
-          val metrics= new MulticlassMetrics(predictionsAndLabelsRDD)
-          
-          // miramos cada uno de los aciertos en funciuon de las profundidades
-          val acierto = metrics.accuracy
-
-
-//una vez tenemos el array de pipelines clasificadores entrenamos el modelo, generamos los resultados y los guardamos en un DataFrame
-*/
-
-
 val resultados_ADULT=generadorModeloResutladosCompleto(datosDFLabeled_testAdult,
                                   datosDFLabeled_trainningAdult,
                                   generadorPipelinePorClasificadorAdult,
@@ -775,4 +611,209 @@ resultados_ADULT.show()
 
 // COMMAND ----------
 
-display(resultados_ADULT)
+// DBTITLE 1,SupervisadoClasificadoresBase - Poker Hand(DT, LR, RF,NB, LSVM)
+// LIBRERIAS necesarias (IMPORTACIONES)
+
+import org.apache.spark.sql.types.{StructType,StructField,StringType,DoubleType}
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.ml.feature.StringIndexer
+import org.apache.spark.ml.feature.StringIndexerModel
+import org.apache.spark.ml.feature.VectorAssembler
+import org.apache.spark.mllib.evaluation.MulticlassMetrics
+import org.apache.spark.ml.{Pipeline, PipelineModel}
+import scala.util.control.Breaks._
+
+// clasificadores Base
+import org.apache.spark.ml.classification.DecisionTreeClassifier
+import org.apache.spark.ml.classification.LogisticRegression
+import org.apache.spark.ml.classification.NaiveBayes
+import org.apache.spark.ml.classification.RandomForestClassifier
+import org.apache.spark.ml.classification.LinearSVC
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// LECTURA
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//leemos el documento
+val PATH="dbfs:/FileStore/tables/"
+val datos="pokerTraining.data"
+val lines_datos= sc.textFile(PATH + datos)//.map(x=>x.split(","))
+
+// creamos el DF
+val datosDF = spark.read.format("csv")
+  .option("sep", ",")
+  .option("inferSchema", "true")
+  .option("header", "false")
+  .load(PATH + datos)
+
+datosDF.printSchema() 
+
+
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//CLEANING y PRE-PROCESADO
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+//vamos a ver que valores nulos tenemos
+val instanciasConNulos=datosDF.count() - datosDF.na.drop().count()
+println("INSTANCIAS CON NULOS")
+println(instanciasConNulos) //no hay nulos
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//DISTRIBUCION DE CLASES
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+println("DISTRIBUCION DE CLASE")
+
+val clasesTipo = datosDF.select("_c10").distinct.count.toInt
+val distribuciones:Array[(Double)] = new Array[(Double)](clasesTipo) 
+
+for(cls <- 0 to (clasesTipo-1)){
+  distribuciones(cls)= ((datosDF.filter(datosDF("_c10")=== cls).count).toDouble / (datosDF.select("_c10").count).toDouble)*100
+  print ("label distribucion (%) ") 
+  print (cls)
+  print (": ")
+  println (distribuciones(cls))
+}
+
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//TRANSFORMACION TO BINARY CLASIFICATION
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+val datosDFNew=datosDF.withColumn("clase",
+                                  when(((datosDF("_c10"))>0) ,"AtleastOnePair").
+                                  when(((datosDF("_c10"))<=0) ,"Nothing")).drop("_c10")
+
+
+println("Nueva distribucion Binaria")
+println("Muy pocas opciones para ganar (Ni parejas)")
+println (distribuciones(0))
+println("Alguna opcion para ganar(Almenos pareja)")
+println (100-(distribuciones(0)))
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//DATA SPLIT  TRAINING & TEST  (el split de los datos de training en 2%, 5% ... se hace posteriormente)
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+//dividimos en datos de trainning 75% y datos de test 25%
+val dataSplits= datosDFNew.randomSplit(Array(0.75, 0.25),seed = 8L)
+val datosDFLabeled_trainning = dataSplits(0)
+val datosDFLabeled_test = dataSplits(1)
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//FEATURIZATION -> PREPARAMOS INSTANCIAS
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+// StringIndexer para pasar el valor categorico a double de la clase , para la features no utilizamos pq ya son doubles. 
+val indiceClasePipelinePoker = new StringIndexer().setInputCol("clase").setOutputCol("label").setHandleInvalid("skip")
+
+// valores a convertir a continuos
+val valoresCategoricosFeatures= Array("_c0","_c1","_c2","_c3","_c4","_c5","_c6","_c7","_c8","_c9")
+//StringIndexer para la features
+
+val indexStringFeaturesLlamada = indexStringColumnsStagePipeline(datosDFNew,valoresCategoricosFeatures)
+
+val indexStringFeaturesTodasNumPoker = indexStringFeaturesLlamada._1
+val columnnasYaNumericasPoker = indexStringFeaturesLlamada._2
+
+// juntamos las columnas convertidas a continuo con StringIndexer y las ya numericas/continuas
+val datosDFSinClaseSoloFeaturesPoker = valoresCategoricosFeatures.par.map(x=>x+"-num").toArray.union(columnnasYaNumericasPoker)
+
+//VectorAssembler para generar una array de valores para las features
+val assemblerFeaturesLabelPipelinePoker= new VectorAssembler().setOutputCol("features").setInputCols(datosDFSinClaseSoloFeaturesPoker.diff(Array("clase"))) // sin la clase o label
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//PIPELINE FEATURIZATION para POKER
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+//generamos el pipeline
+val featurizationPipelinePoker = new Pipeline().setStages(Array(
+                                              indexStringFeaturesTodasNumPoker,
+                                              assemblerFeaturesLabelPipelinePoker,
+                                              indiceClasePipelinePoker))
+
+
+val featPoker=featurizationPipelinePoker.fit(datosDFLabeled_trainning).transform(datosDFLabeled_trainning)
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//PIPELINE  Y EVALUACION PARA TODOS LOS CLASIFICADORES BASE
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+// instancia de todos los clasificadores que vamos a utilizar
+val instanciaTrainingPipelineDT = new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineRF = new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineNB = new NaiveBayes().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineLR = new LogisticRegression().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineLSVM = new LinearSVC().setFeaturesCol("features").setLabelCol("label")
+
+
+// array de instancias para cada clasificador base
+val arrayInstanciasClasificadores:Array[(String,PipelineStage)] = Array(("DT",instanciaTrainingPipelineDT),
+                                       ("LR",instanciaTrainingPipelineLR),
+                                       ("RF",instanciaTrainingPipelineRF),
+                                       ("NB",instanciaTrainingPipelineNB),
+                                       ("LSVM",instanciaTrainingPipelineLSVM) 
+                                      )
+
+
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//preparamos los parametros:  
+// 1.- tipo clasificadores, 
+// 2.- porcentaje .... (la informacion que esta en el DataFrame de resultados)
+// 3.- tipo de datos en esta caso breast cancer wisconsin --> BCW
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+val clasificadoresBase = Array("DT","LR","RF","NB","LSVM")
+val porcentajeLabeled = Array(0.005,0.01,0.10,0.80)
+val datosCodigo = "POKER"
+
+
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// CREAMOS EL TEMPLATE DE DATAFRAME PARA LOS RESULTADOS
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+val pokerResultados = generadorDataFrameResultados(datosCodigo,clasificadoresBase,porcentajeLabeled)
+
+
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// PIPELINE FINAL AUTOMATIZADO PARA CADA CLASIFICADOR
+//
+// FEATURIZATIONT(BCW)--> CLASIFICACOR (DT) --> RESUTADO
+//                    --> CLASIFICACOR (RF) --> RESUTADO
+//                    --> CLASIFICACOR (NB) --> RESUTADO
+//                    --> .....
+//                    --> .....
+//                    --> CLASIFICACOR (XX) --> RESUTADO
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+// generamos los pipelines para cada clasificador base:
+val generadorPipelinePorClasificador = generadorPipelinesPorClasificador(arrayInstanciasClasificadores,featurizationPipelinePoker)
+
+//una vez tenemos el array de pipelines clasificadores entrenamos el modelo, generamos los resultados y los guardamos en un DataFrame
+val resultados_Poker=generadorModeloResutladosCompleto(datosDFLabeled_test,
+                                  datosDFLabeled_trainning,
+                                  generadorPipelinePorClasificador,
+                                  pokerResultados,
+                                  porcentajeLabeled,
+                                  clasificadoresBase)
+
+resultados_Poker.show()
+
+
+// COMMAND ----------
+
+display(resultados_Poker)
+
+
+// COMMAND ----------
+
+val results_BCW_ADULT=resultados_BCW.union(resultados_ADULT)
+display(results_BCW_ADULT)
