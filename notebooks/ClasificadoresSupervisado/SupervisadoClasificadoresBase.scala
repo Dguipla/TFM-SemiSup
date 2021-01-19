@@ -21,6 +21,8 @@ import spark.implicits._
 import org.apache.spark.sql.functions._
 import org.apache.spark.ml.PipelineStage
 import scala.util.control.Breaks._
+import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
+import org.apache.spark.mllib.evaluation.MulticlassMetrics
 
 
 //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -44,15 +46,15 @@ import scala.util.control.Breaks._
 def generadorDataFrameResultados(datos:String,clasificadores:Array[String],porcentaje:Array[Double]):DataFrame= 
 {
   // creamos la array de salida con el type y el tamaño
-  var seqValores=Seq[(String, String, Double, Double)]() 
+  var seqValores=Seq[(String, String, Double, Double, Double, Double, Double)]() 
   var posicion = 0
   for(posClasi <-clasificadores) {
     for(posPorce <-porcentaje){
-      seqValores = seqValores :+ (datos,posClasi,posPorce,0.00)
+      seqValores = seqValores :+ (datos,posClasi,posPorce,0.00,0.00,0.00,0.00)
     }
   }
   // generamos el DataFrame que sera la salida
-  spark.createDataFrame(seqValores).toDF("data", "clasificador", "porcentajeEtiquetado", "accuracy")
+  spark.createDataFrame(seqValores).toDF("data", "clasificador", "porcentajeEtiquetado", "accuracy","AUC","PR","F1score")
 }
 
 
@@ -121,10 +123,37 @@ def generadorModeloResutladosCompleto(datosTest:DataFrame,
           var acierto = metrics.accuracy
           println ("resultado")
           println(acierto)
+          
+          
+          //Para calcular el área bajo la curva ROC y el área bajo la curva PR necesitamos la clase BinaryClassificationMetrics
+          val metrics2 = new BinaryClassificationMetrics(predictionsAndLabelsRDD)
+          //var metrics3= new MulticlassMetrics(predictionsAndLabelsRDD)
+
+           // Área bajo la curva ROC
+          var auROC_arbol = metrics2.areaUnderROC
+
+          // Área bajo la curva PR
+          var auPR_arbol = metrics2.areaUnderPR
+          
+          var f1Score = metrics.fMeasure(1)
 
           //Aqui ira el resultado en el nuevo dataFrame newdf
+          //accuracy
           newdf = newdf.withColumn("accuracy",when(newdf("porcentajeEtiquetado")===posPorcentaje && newdf("clasificador")===posClasi, acierto).
                           otherwise (newdf("accuracy")))
+          //AUC
+           newdf = newdf.withColumn("AUC",when(newdf("porcentajeEtiquetado")===posPorcentaje && newdf("clasificador")===posClasi, auROC_arbol).
+                          otherwise (newdf("AUC")))
+          //PR
+          newdf = newdf.withColumn("PR",when(newdf("porcentajeEtiquetado")===posPorcentaje && newdf("clasificador")===posClasi, auPR_arbol).
+                          otherwise (newdf("PR")))
+          
+          //f1score
+          newdf = newdf.withColumn("F1score",when(newdf("porcentajeEtiquetado")===posPorcentaje && newdf("clasificador")===posClasi,f1Score).
+                                   otherwise (newdf("F1score")))
+          
+
+
           //newdf = newdf.withColumn("accuracy",when(newdf("porcentajeEtiquetado")===posPorcentaje && newdf("clasificador")===posClasi, acierto))
           
          // break// Salimos del loop
@@ -280,7 +309,7 @@ val datosDFSinClaseSoloFeatures=datosDF_2.columns.diff(Array("diagnosis"))
 val datosFeaturesLabelPipeline= new VectorAssembler().setOutputCol("features").setInputCols(datosDFSinClaseSoloFeatures)
 
 // StringIndexer para pasar el valor categorico a double de la clase , para la features no utilizamos pq ya son doubles. 
-val indiceClasePipeline = new StringIndexer().setInputCol("diagnosis").setOutputCol("label").setHandleInvalid("keep")
+val indiceClasePipeline = new StringIndexer().setInputCol("diagnosis").setOutputCol("label").setHandleInvalid("skip")
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 //PIPELINE FEATURIZATION para Breast Cancer Wisconsin
@@ -322,8 +351,8 @@ val arrayInstanciasClasificadores:Array[(String,PipelineStage)] = Array(("DT",in
 // 3.- tipo de datos en esta caso breast cancer wisconsin --> BCW
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-val clasificadoresBase = Array ("DT","LR","RF","NB","LSVM")
-val porcentajeLabeled = Array(0.01,0.05,0.10,0.30)
+val clasificadoresBase = Array("DT")//Array ("DT","LR","RF","NB","LSVM")
+val porcentajeLabeled = Array(0.01)//Array(0.01,0.05,0.10,0.30)
 val datosCodigo = "BCW"
 
 
@@ -360,10 +389,6 @@ val resultados_BCW=generadorModeloResutladosCompleto(datosDFLabeled_test,
 resultados_BCW.show()
 
 
-
-// COMMAND ----------
-
-display(resultados_BCW.withColumn("accuracy",col("accuracy")*100))
 
 // COMMAND ----------
 
@@ -470,7 +495,6 @@ val count_lines_training = lines_training.count() // 32k approx
 
 println("NUMERO DE REGISTROS")
 println("Numero de registros de entrenamiento: " + count_lines_training)
-println("Numero de registros de test: " + count_lines_test)
 
 // distribuvion de clase:
 
@@ -505,7 +529,7 @@ val datosDFLabeled_testAdult = dataSplits(1)
 
 
 // StringIndexer para pasar el valor categorico a double de la clase 
-val indiceClasePipelineAdult = new StringIndexer().setInputCol("clase").setOutputCol("label").setHandleInvalid("keep")
+val indiceClasePipelineAdult = new StringIndexer().setInputCol("clase").setOutputCol("label").setHandleInvalid("skip")
 
 // valores a convertir a continuos
 val valoresCategoricosFeatures= Array("workclass","education","marital_status", "occupation", "race", "relationship","sex","native_country")
@@ -567,7 +591,7 @@ val arrayInstanciasClasificadores:Array[(String,PipelineStage)] = Array(("DT",in
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 val clasificadoresBase = Array ("DT","LR","RF","NB","LSVM")
-val porcentajeLabeled = Array(0.01,0.05,0.10,0.30)
+val porcentajeLabeled = Array(0.001,0.005,0.01,0.05,0.10,0.30)
 val datosCodigo = "ADULT"
 
 
@@ -608,6 +632,10 @@ resultados_ADULT.show()
 
 
 
+
+// COMMAND ----------
+
+//display(resultados_ADULT)
 
 // COMMAND ----------
 
@@ -771,7 +799,7 @@ val arrayInstanciasClasificadores:Array[(String,PipelineStage)] = Array(("DT",in
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 val clasificadoresBase = Array("DT","LR","RF","NB","LSVM")
-val porcentajeLabeled = Array(0.005,0.01,0.10,0.80)
+val porcentajeLabeled = Array(0.0001,0.001,0.01,0.1,0.3)
 val datosCodigo = "POKER"
 
 
@@ -806,14 +834,317 @@ val resultados_Poker=generadorModeloResutladosCompleto(datosDFLabeled_test,
                                   clasificadoresBase)
 
 resultados_Poker.show()
+//resultados_Poker.write.save(PATH + "resultsPOKER")
 
 
 // COMMAND ----------
 
 display(resultados_Poker)
 
+// COMMAND ----------
+
+import scala.math.sqrt
+import scala.math.pow
+import scala.math.toRadians
+import scala.math.sin
+import scala.math.cos
+import scala.math.atan2
+
+// LIBRERIAS necesarias (IMPORTACIONES)
+
+import org.apache.spark.sql.types.{StructType,StructField,StringType,DoubleType}
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.ml.feature.StringIndexer
+import org.apache.spark.ml.feature.StringIndexerModel
+import org.apache.spark.ml.feature.VectorAssembler
+import org.apache.spark.mllib.evaluation.MulticlassMetrics
+import org.apache.spark.ml.{Pipeline, PipelineModel}
+import scala.util.control.Breaks._
+
+// clasificadores Base
+import org.apache.spark.ml.classification.DecisionTreeClassifier
+import org.apache.spark.ml.classification.LogisticRegression
+import org.apache.spark.ml.classification.NaiveBayes
+import org.apache.spark.ml.classification.RandomForestClassifier
+import org.apache.spark.ml.classification.LinearSVC
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// LECTURA
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+// Creamos un RDD con los datos que vamos a explorar
+import org.apache.spark.sql.functions.{concat, lit}
+val PATH="/FileStore/tables/"  
+val entreno = "train.csv"
+val training = sc.textFile(PATH + entreno)
+
+// Creamos un case class con el esquema de los datos
+case class fields   (id: String, // 0
+                     vendor_id: Int, // categorico 1
+                     pickup_datetime: String, //2
+                     dropoff_datetime:String, //3
+                     passenger_count:Int, // categorico 4
+                     pickup_longitude:Double, // 5
+                     pickup_latitude:Double, // 6
+                     dropoff_longitude:Double, // 7
+                     dropoff_latitude:Double, //8
+                     store_and_fwd_flag:String, // categorico 9
+                     trip_duration:Int) //10
+
+
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//CLEANING
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+val nonEmpty_training= training.filter(_.nonEmpty)
+// Separamos por , y eliminamos la primera linea head
+val parsed_training= nonEmpty_training.map(line => line.split(",")).zipWithIndex().filter(_._2 >= 1).keys
+// Asociamos los campos a la clase
+val training_reg = parsed_training.map(x=>fields(x(0),
+                                                 x(1).toInt,x(2),x(3),x(4).toInt,x(5).toDouble,x(6).toDouble,x(7).toDouble,x(8).toDouble,x(9),x(10).toInt)) 
+
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// MIRAMOS LA DISTRIBUCIÓN DE CLASES: 
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+val longTravel = training_reg.filter(x => x.trip_duration > 900).count
+val shortTravel = training_reg.filter(x => x.trip_duration <= 900).count
+
+
+val longTravelPorcentage = (longTravel.toDouble/training_reg.count())*100
+val shortTravelPorcentage = (shortTravel.toDouble/training_reg.count())*100
+
+println("Porcentaje de viajes cortos: " + shortTravelPorcentage)
+println("Porcentaje de viajes largos: " + longTravelPorcentage)
+
+// tenemos una distribucion 67% - 33% aprox con lo que la complejidad del clasificador no sera muy elevada.
+
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//TRANSFORMACION
+// (id, vendor_id, prickup_month, pickup_day, pickup_time, passenger_count, pickup_longitude, pickup_latitude, dropoff_longitude,
+//  dropoff_latitude, store_and_fwd_flag, diff_distance, trip_duration)
+//*****************************************************************************
+
+
+// para ello hemos eliminado atributos que no nos generan valor:
+// - año 
+// - tiempo de llegada esto esta informacion esta en el tiempo del trayecto
+// - de momento hemos selecionado  passenger count  
+// - Por otro lado podriamos eliminar id ya que hay uno por registro no aporta informacion
+
+
+case class fieldsAfterExpo   (id: String, //0
+                     vendor_id: Int, //0
+                     pickup_month: String,
+                     pickup_day: Int,
+                     pickup_time: Double,
+                     passenger_count: Int, 
+                     pickup_longitude: Double, 
+                     pickup_latitude: Double, 
+                     dropoff_longitude: Double, 
+                     dropoff_latitude: Double, 
+                     store_and_fwd_flag: String, 
+                     diff_distance: Double,
+                     trip_duration: Int) 
+
+val training_reg_final = parsed_training.map(x => fieldsAfterExpo(
+                                            x(0), 
+                                            x(1).toInt,
+                                            {val splittedmonth = x(2).split(" ")  // mes
+                                            val splittedmonth2 = splittedmonth(0).split("-")
+                                            (splittedmonth2(1))
+                                            },
+                                            {val splittedday = x(2).split(" ") // day
+                                            val splittedday2 = splittedday(0).split("-")
+                                            (splittedday2(2))
+                                            }.toInt,
+                                            {val splittedtime = x(2).split(" ") // hora
+                                            val splittedtime2 = splittedtime(1).split(":")
+                                            splittedtime2(0).toDouble + splittedtime2(1).toDouble/60 + splittedtime2(2).toDouble/3600
+                                            },
+                                           x(4).toInt,
+                                           x(5).toDouble,
+                                           x(6).toDouble,
+                                           x(7).toDouble,
+                                           x(8).toDouble,
+                                           x(9),
+                                           6371*2*atan2(sqrt(
+                                                       pow(sin(toRadians(x(8).toDouble - x(6).toDouble)/2),2) +
+                                                       cos(toRadians(x(6).toDouble)) * 
+                                                       cos(toRadians(x(8).toDouble)) *
+                                                       pow(sin(toRadians(x(7).toDouble - x(5).toDouble)/2),2)
+                                                       //pow(((x.pickup_longitude).abs - (x.dropoff_longitude).abs),2)
+                                                       ),
+                                                       sqrt(1-(
+                                                       pow(sin(toRadians(x(8).toDouble - x(6).toDouble)/2),2) +
+                                                       cos(toRadians(x(6).toDouble)) * cos(toRadians(x(8).toDouble))*
+                                                       pow(sin(toRadians(x(7).toDouble - x(5).toDouble)/2),2)
+                                                       //pow(((x.pickup_longitude).abs - (x.dropoff_longitude).abs),2)
+                                                       )
+                                                      )
+                                                     ),
+                                           x(10).toInt)
+
+                                        )
+//outliers o valores incorrectos (ruido) o  poco representativos  POSIBLE LIMPIEZA: 
+val casosDistanciaMayor30k=training_reg_final.filter(x=>x.diff_distance>30).count //573 casos --> 0.03%
+val casosDistanciaMenor300m=training_reg_final.filter(x=>x.diff_distance<0.3).count //22469 casos --> 1.5%
+val casosTiempoMayor2h = training_reg_final.filter(x=>x.trip_duration>7200).count//2253 casos --> 0.154%
+//Filtramos recoridos mayores de 30k son
+//Filtramos recoridos menores a 300m
+//Filtramos recoridos tiempos mayores a 2h
+
+
+//convertimos a DF
+val training_reg_final_DF=training_reg_final.toDF
+//Filtramos recoridos mayores de 30k son
+//Filtramos recoridos menores a 300m
+//Filtramos recoridos tiempos mayores a 2h
+val training_reg_final_filtrado_DF_1=training_reg_final_DF.filter((training_reg_final_DF("diff_distance")<=30))
+val training_reg_final_filtrado_DF_2=training_reg_final_filtrado_DF_1.filter((training_reg_final_DF("diff_distance")>=0.3))
+val training_reg_final_filtrado_DF_3 = training_reg_final_filtrado_DF_2.filter((training_reg_final_DF("trip_duration")<=7200))
+val training_reg_final_filtrado_DF= training_reg_final_filtrado_DF_3.filter((training_reg_final_DF("passenger_count")<=6)) //eliminamos los casos menos representativos como 0 pasajersos (es un error) 7,8,9(que suman 4 casos en total)
+
+// CREAMOS LA CLASE MAYOR DE 15 MIN O MENOR IGUAL 
+val training_reg_final_DF_new=training_reg_final_DF.withColumn("clase",when(((training_reg_final_DF("trip_duration"))>900) ,"Long").
+                                           when(((training_reg_final_DF("trip_duration"))<= 900) ,"Short"))
+
+
+// seleccionamos los atributos con los que vamos a trabajar:
+val datosDF_NY=training_reg_final_DF_new.select("vendor_id",
+                                                "pickup_month",
+                                                "pickup_day",
+                                                "pickup_time",
+                                                "passenger_count",
+                                                "store_and_fwd_flag",
+                                                "diff_distance",
+                                                "clase")
+
+
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//DATA SPLIT  TRAINING & TEST  (el split de los datos de training en 2%, 5% ... se hace posteriormente)
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+//dividimos en datos de trainning 75% y datos de test 25%
+val dataSplits=  datosDF_NY.randomSplit(Array(0.75, 0.25),seed = 8L)
+val datosDFLabeled_trainning = dataSplits(0)
+val datosDFLabeled_test = dataSplits(1)
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//FEATURIZATION -> PREPARAMOS INSTANCIAS
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+// StringIndexer para pasar el valor categorico a double de la clase , para la features no utilizamos pq ya son doubles. 
+val indiceClasePipelineNY = new StringIndexer().setInputCol("clase").setOutputCol("label").setHandleInvalid("skip")
+
+// valores a convertir a continuos
+val valoresCategoricosFeatures= Array("vendor_id","pickup_month","pickup_day", "passenger_count", "store_and_fwd_flag")
+
+
+//StringIndexer para la features
+
+val indexStringFeaturesLlamada = indexStringColumnsStagePipeline(datosDF_NY,valoresCategoricosFeatures)
+
+val indexStringFeaturesTodasNumNY = indexStringFeaturesLlamada._1
+val columnnasYaNumericasNY = indexStringFeaturesLlamada._2
+
+// juntamos las columnas convertidas a continuo con StringIndexer y las ya numericas/continuas
+val datosDFSinClaseSoloFeaturesNY = valoresCategoricosFeatures.par.map(x=>x+"-num").toArray.union(columnnasYaNumericasNY)
+
+//VectorAssembler para generar una array de valores para las features
+val assemblerFeaturesLabelPipelineNY= new VectorAssembler().setOutputCol("features").setInputCols(datosDFSinClaseSoloFeaturesNY.diff(Array("clase"))) // sin la clase o label
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//PIPELINE FEATURIZATION para POKER
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+//generamos el pipeline
+val featurizationPipelineNY = new Pipeline().setStages(Array(
+                                              indexStringFeaturesTodasNumNY,
+                                              assemblerFeaturesLabelPipelineNY,
+                                              indiceClasePipelineNY))
+
+
+val featNY=featurizationPipelineNY.fit(datosDFLabeled_trainning).transform(datosDFLabeled_trainning)
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//PIPELINE  Y EVALUACION PARA TODOS LOS CLASIFICADORES BASE
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+// instancia de todos los clasificadores que vamos a utilizar
+val instanciaTrainingPipelineDT = new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineRF = new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineNB = new NaiveBayes().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineLR = new LogisticRegression().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineLSVM = new LinearSVC().setFeaturesCol("features").setLabelCol("label")
+
+
+// array de instancias para cada clasificador base
+val arrayInstanciasClasificadores:Array[(String,PipelineStage)] = Array(("DT",instanciaTrainingPipelineDT),
+                                       ("LR",instanciaTrainingPipelineLR),
+                                       ("RF",instanciaTrainingPipelineRF),
+                                       ("NB",instanciaTrainingPipelineNB),
+                                       ("LSVM",instanciaTrainingPipelineLSVM) 
+                                      )
+
+
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//preparamos los parametros:  
+// 1.- tipo clasificadores, 
+// 2.- porcentaje .... (la informacion que esta en el DataFrame de resultados)
+// 3.- tipo de datos en esta caso breast cancer wisconsin --> BCW
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+val clasificadoresBase = Array("DT","LR","RF","NB","LSVM")
+val porcentajeLabeled = Array(0.0001,0.001,0.01,0.1,0.3)//(0.01,0.05,0.10,0.30)
+val datosCodigo = "TXNY"
+
+
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// CREAMOS EL TEMPLATE DE DATAFRAME PARA LOS RESULTADOS
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+val NYResultados = generadorDataFrameResultados(datosCodigo,clasificadoresBase,porcentajeLabeled)
+
+
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// PIPELINE FINAL AUTOMATIZADO PARA CADA CLASIFICADOR
+//
+// FEATURIZATIONT(BCW)--> CLASIFICACOR (DT) --> RESUTADO
+//                    --> CLASIFICACOR (RF) --> RESUTADO
+//                    --> CLASIFICACOR (NB) --> RESUTADO
+//                    --> .....
+//                    --> .....
+//                    --> CLASIFICACOR (XX) --> RESUTADO
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+// generamos los pipelines para cada clasificador base:
+val generadorPipelinePorClasificador = generadorPipelinesPorClasificador(arrayInstanciasClasificadores,featurizationPipelineNY)
+
+//una vez tenemos el array de pipelines clasificadores entrenamos el modelo, generamos los resultados y los guardamos en un DataFrame
+val resultados_NY=generadorModeloResutladosCompleto(datosDFLabeled_test,
+                                  datosDFLabeled_trainning,
+                                  generadorPipelinePorClasificador,
+                                  NYResultados,
+                                  porcentajeLabeled,
+                                  clasificadoresBase)
+
+resultados_NY.show()
+
 
 // COMMAND ----------
 
-val results_BCW_ADULT=resultados_BCW.union(resultados_ADULT)
-display(results_BCW_ADULT)
+display (resultados_NY)
