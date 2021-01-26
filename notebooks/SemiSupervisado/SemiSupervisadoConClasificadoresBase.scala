@@ -4,400 +4,120 @@ display(dbutils.fs.ls("/FileStore/tables"))
 
 // COMMAND ----------
 
-// DBTITLE 1,FUNCIONES SUPERVISADO (PIPELINES Y AUTOMATIZACION DE LOS PROCESOS)
-// LIBRERIAS necesarias (IMPORTACIONES)
-
-import org.apache.spark.sql.types.{StructType,StructField,StringType,DoubleType}
-import org.apache.spark.sql.Row
-import org.apache.spark.sql.DataFrame
-import org.apache.spark.ml.feature.StringIndexer
-import org.apache.spark.ml.feature.StringIndexerModel
-import org.apache.spark.ml.feature.VectorAssembler
-import org.apache.spark.ml.classification.DecisionTreeClassifier
-import org.apache.spark.mllib.evaluation.MulticlassMetrics
-import org.apache.spark.ml.{Pipeline, PipelineModel}
-import org.apache.spark.sql.functions.col
-import spark.implicits._
+// DBTITLE 1,Class UnlabeledTransformer
+import org.apache.spark.ml.Transformer
+import org.apache.spark.ml.param.{ Param, ParamMap }
+import org.apache.spark.ml.util.{ DefaultParamsReadable, DefaultParamsWritable, Identifiable }
+import org.apache.spark.sql.{ DataFrame, Dataset }
+import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.functions._
-import org.apache.spark.ml.PipelineStage
-import scala.util.control.Breaks._
-import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
-import org.apache.spark.mllib.evaluation.MulticlassMetrics
 
 
-//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-// GENERADOR DE DATA FRAME RESULTADOS (solo el esqueleto del DATA FRAME)
-//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//+++++++++++++++++++++++++++++++++++++
+//clase para desetiquetar conjunto de datos
+//+++++++++++++++++++++++++++++++++++++++++
 
-/* QUEDARIA:
+class UnlabeledTransformer(override val uid: String) extends Transformer with DefaultParamsWritable {
+  
+  var percentageLabeled:Double = 0.1
+  var seedValue:Long =11L
+  var columnNameNewLabels :String ="labelSelection"
 
-+----+------------+--------------------+--------+---+---+--------+
-|data|clasificador|porcentajeEtiquetado|accuracy|AUC|PR |F1score |
-+----+------------+--------------------+--------+---+---+--------+
-| BCW|          DT|                0.02|     x.x|x.x|x.x|     x.x|
-| BCW|          DT|                0.05|     x.x|x.x|x.x|     x.x|
-| BCW|          DT|                 0.1|     x.x|x.x|x.x|     x.x|
-| BCW|          DT|                 0.3|     x.x|x.x|x.x|     x.x|
-| BCW|          LR|                0.02|     x.x|x.x|x.x|     x.x|
-....
-....
-*/
-
-def generadorDataFrameResultados(datos:String,clasificadores:Array[String],porcentaje:Array[Double]):DataFrame= 
-{
-  // creamos la array de salida con el type y el tamaño
-  var seqValores=Seq[(String, String, Double, Double, Double, Double, Double)]() 
-  var posicion = 0
-  for(posClasi <-clasificadores) {
-    for(posPorce <-porcentaje){
-      seqValores = seqValores :+ (datos,posClasi,posPorce,0.00,0.00,0.00,0.00)
-    }
+  def this() = this(Identifiable.randomUID("UnlabeledTransformer"))
+  
+  def setPercentage(percentage:Double)={
+    percentageLabeled= percentage
+    this
+   }
+  
+  def setColumnLabelName(nameColumn:String)={
+    columnNameNewLabels = nameColumn
+    this
   }
-  // generamos el DataFrame que sera la salida
-  spark.createDataFrame(seqValores).toDF("data", "clasificador", "porcentajeEtiquetado", "accuracy","AUC","PR","F1score")
+  
+  def setSeed(seedV:Long)={
+    seedValue= seedV
+    this
+  }
+  
+  override def transform(data: Dataset[_]): DataFrame = {
+    val dataSp=  data.randomSplit(Array(percentageLabeled, 1-percentageLabeled),seed = seedValue)
+    val dataLabeled = dataSp(0).toDF.withColumn(columnNameNewLabels,col("label"))
+    val dataUnlabeled=dataSp(1).toDF.withColumn(columnNameNewLabels,col("label")*Double.NaN) //unlabeled esta parte de conjunto de datos
+   // println(dataLabeled.count)
+    //println(dataUnlabeled.count)
+    dataLabeled.unionAll(dataUnlabeled)
+
+  }
+
+  override def copy(extra: ParamMap): UnlabeledTransformer = defaultCopy(extra)
+  override def transformSchema(schema: StructType): StructType = schema
 }
 
-//NUEVA ESTRUCTURA DE DATOS PARA SEMISUPERVISADO
-//|data| Aprendizaje| clasifi| porcentaje| threshold| iter| LabeledInicial| UnlabeledInicial| LabeledFinal| UnlabeledFinal| porEtiFinal| Acc| AUC| F1Score|
-//+----+------------+--------+-----------+----------+-----+---------------+-----------------+-------------+---------------+------------+----+----+--------+
-//| BCW| SemiSupervi|      DT|      0.001|       0.6|    2|            130|           100600|        98000|           2600|       97.4 | x.x| x.x|     x.x|
-//| BCW| SemiSupervi|      DT|      0.005|       0.6|    3|            270|           100460|        96000|           2800|       97.21| x.x| x.x|     x.x|
-//....
-
-
-//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//preparamos los parametros: clasificadores, porcentaje ....
-//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-// NO SE USA
-/*
-//buscamos los diferentes clasificadores base con los que vamos a trabajar
-val tiposClasificador = breastCancerWisconResultados.select("clasificador").distinct.collect()
-// hemos perdido el tipado se lo devolvemos:
-val tiposClasiCorrecto = tiposClasificador.map(row => (row(0).asInstanceOf[String]))
-
-//buscamos los diferentes % --> 2, 5 , 20
-val por100Etiquetaje = breastCancerWisconResultados.select("porcentajeEtiquetado").distinct.collect()
-// hemos perdido el tipado se lo devolvemos
-val por100EtiquetajeCorrecto = por100Etiquetaje.map(row => (row(0).asInstanceOf[Double]))
-*/
-
-//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-// ENTRENAMIENTO + GENERACION DEL MODELO + RESULTADO CON CONJUNTO DE TEST
-//Para cada clasificador:
-// 1.- particionamos los datos en funcion del % seleccionado 2%, 5%....
-// 2.-Entrenamos el Pipeline Completo (por clasificador) + calculamos la accuracy
-//*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-//primero hacemos la particion de los datos segun el % y despues con DataSet reducido trabajamos con todos los clasificadores asi succesivamente para cada clasificador de esta forma tenemos el mismo dataSet reducido utilizado para cada modelo de entrenamiento
-
-def generadorModeloResutladosCompleto(datosTest:DataFrame,
-                                      datosTraining:DataFrame,
-                                      modelosPipeline:Array[(String,Pipeline)], // TE Q SER ARRAY
-                                      info:DataFrame,
-                                      porcentajeEtiquetado:Array[Double], 
-                                      tiposClasi:Array[String]):DataFrame= 
-{
-  var newdf= info
-  for (posPorcentaje <-porcentajeEtiquetado){
-    for(posClasi <-tiposClasi) {
-      
-      // split datos cogemos X% para labeled data de los datos de trainning 
-    
-      val dataSp=  datosTraining.randomSplit(Array(posPorcentaje, 1-posPorcentaje),seed = 11L)
-      val datosTrainningSplited=dataSp(0)
-      for (posPipeline <- 0 to (modelosPipeline.size-1)){
-        //miramos que clasificador base es para despues poner su resultado en la posicion correspondiente dentro del DataFrame
-        if (modelosPipeline(posPipeline)._1.contentEquals(posClasi)){ 
-          // entrenamos el modelo DT para diferentes %
-          println("porcentaje")
-          println(posPorcentaje)
-          println("clasificador")
-          println(posClasi)
-          println("datos")
-          println(datosTrainningSplited.count())
-          println(datosTest.count())
-          var model = modelosPipeline(posPipeline)._2.fit(datosTrainningSplited)
-
-          // montar un for con tres iteraciones para buscar un error coerente cuando los datos pequeños ¿?¿?
-          var resultados=model.transform(datosTest).select("prediction", "label")                                                                                        
-          //Necesitamos un RDD de predicciones y etiquetas: es MLlib
-          var predictionsAndLabelsRDD=resultados.rdd.map(row=> (row.getDouble(0), row.getDouble(1)))
-
-          var metrics= new MulticlassMetrics(predictionsAndLabelsRDD)
-          
-          // miramos cada uno de los aciertos en funciuon de las profundidades
-          var acierto = metrics.accuracy
-          println ("resultado")
-          println(acierto)
-          
-          
-          //Para calcular el área bajo la curva ROC y el área bajo la curva PR necesitamos la clase BinaryClassificationMetrics
-          val metrics2 = new BinaryClassificationMetrics(predictionsAndLabelsRDD)
-          //var metrics3= new MulticlassMetrics(predictionsAndLabelsRDD)
-
-           // Área bajo la curva ROC
-          var auROC_arbol = metrics2.areaUnderROC
-
-          // Área bajo la curva PR
-          var auPR_arbol = metrics2.areaUnderPR
-          
-          var f1Score = metrics.fMeasure(1)
-
-          //Aqui ira el resultado en el nuevo dataFrame newdf
-          //accuracy
-          newdf = newdf.withColumn("accuracy",when(newdf("porcentajeEtiquetado")===posPorcentaje && newdf("clasificador")===posClasi, acierto).
-                          otherwise (newdf("accuracy")))
-          //AUC
-           newdf = newdf.withColumn("AUC",when(newdf("porcentajeEtiquetado")===posPorcentaje && newdf("clasificador")===posClasi, auROC_arbol).
-                          otherwise (newdf("AUC")))
-          //PR
-          newdf = newdf.withColumn("PR",when(newdf("porcentajeEtiquetado")===posPorcentaje && newdf("clasificador")===posClasi, auPR_arbol).
-                          otherwise (newdf("PR")))
-          
-          //f1score
-          newdf = newdf.withColumn("F1score",when(newdf("porcentajeEtiquetado")===posPorcentaje && newdf("clasificador")===posClasi,f1Score).
-                                   otherwise (newdf("F1score")))
-          
-
-
-          //newdf = newdf.withColumn("accuracy",when(newdf("porcentajeEtiquetado")===posPorcentaje && newdf("clasificador")===posClasi, acierto))
-          
-         // break// Salimos del loop
-        }  
-      }
-    }
-  }
-  newdf
+object UnlabeledTransformer extends DefaultParamsReadable[UnlabeledTransformer] {
+  override def load(path: String): UnlabeledTransformer= super.load(path)
 }
-
-//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-// CREACION DEL PIPELINE PARA CADA CLASIFICADOR SELECCIONADO (DT, RF , LR....)
-// Utilizamos el stage pipeline definido de featurization y añadimos un nuevo stage del clasificador 
-//*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-// Funcion creador de pipelines por clasificador
-def generadorPipelinesPorClasificador(instanciasModelos:Array[(String,PipelineStage)],
-                                      featurization:Pipeline
-                                     ):Array[(String,Pipeline)]= 
-{
-  // creamos la array de salida con el type y el tamaño
-  var salida:Array[(String,Pipeline)] = new Array[(String,Pipeline)](instanciasModelos.size) 
-  var posicion = 0
-  for(inModel <-instanciasModelos) {
-    
-    // Generamos los Pipelines para cada clasificador
-    val pipeline = new Pipeline().setStages(Array(
-                                                  featurization,
-                                                  instanciasModelos(posicion)._2 // cogemos solo el stage de la array
-                                                   ))
-    
-    salida(posicion) = (instanciasModelos(posicion)._1,pipeline) // ponemos en la array el clasificador con su pipeline--> clasificador,pipeline
-    posicion = posicion+1
-    
-  }
-  salida
-}
-
-
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-// creacion un pipelineStage para cada columna de features de conversion de categorico a continuo
-//salida de array[PipelineStage]
-//*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-def indexStringColumnsStagePipeline(df:DataFrame,cols:Array[String]):(Pipeline,Array[String])= {
-  var intermedioStages:Array[(PipelineStage)] = new Array[(PipelineStage)](cols.size)
-  var posicion = 0
-  for(col <-cols) {
-    val si= new StringIndexer().setInputCol(col).setOutputCol(col+"-num")
-    intermedioStages(posicion) = si.setHandleInvalid("keep")
-    posicion = posicion +1
-  }
-  val salida = new Pipeline().setStages(intermedioStages)
-  (salida,df.columns.diff(cols))
-}
-
-
-
-
 
 
 // COMMAND ----------
 
-// DBTITLE 1,FUNCIONES SEMISUPERVISADO (PIPELINES Y AUTOMATIZACION DE LOS PROCS)
-
-//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-// CREAMOS EL TEMPLATE DE DATAFRAME PARA LOS RESULTADOS SEMISUPERVISADO
-//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-//NUEVA ESTRUCTURA DE DATOS PARA SEMISUPERVISADO
-//|data| clasifi| porcentaje| threshold| iter| LabeledInicial| UnlabeledInicial| LabeledFinal| UnlabeledFinal| porEtiFinal| Acc| AUC| PR| F1Score|
-//+----+--------+----------+-----------+-----+---------------+-----------------+-------------+---------------+------------+----+----+----+-------+
-//| BCW|   ST-DT|      0.001|       0.6|    2|            130|           100600|        98000|           2600|       97.4 | x.x| x.x| x.x|    x.x|
-//| BCW|   ST-DT|      0.005|       0.6|    3|            270|           100460|        96000|           2800|       97.21| x.x| x.x| x.x|    x.x|
-//....
-
-
-def generadorDataFrameResultadosSemiSuper(datos:String,
-                                          clasificadores:Array[String],
-                                          porcentaje:Array[Double],
-                                          threshold:Array[Double],    
-                                         ):DataFrame= 
-{
-  // creamos la array de salida con el type y el tamaño
-  var seqValores=Seq[(String, String,Double, Double,Int,Int,Long,Long,Long,Double,Double, Double,Double, Double)]() 
-  //var seqValores=Seq[(String, String,Double, Double,Int,Int,Int,Int,Int,Double,Double, Double,Double, Double)]() 
-  var posicion = 0
-  for(posClasi <-clasificadores) {
-    for(posPorce <-porcentaje){
-      for (posThreshold <- threshold){
-        seqValores = seqValores :+ (datos,posClasi,posPorce,posThreshold,0,0,0.toLong,0.toLong,0.toLong,0.00,0.00,0.00,0.00,0.00)
-      }
-    }
-  }
-
-  // generamos el DataFrame que sera la salida
-  spark.createDataFrame(seqValores).toDF("data",
-                                         "clasificador",
-                                         "porcentajeEtiquetado",
-                                         "threshold",
-                                         "iteracion",
-                                         "LabeledInicial",
-                                         "UnLabeledInicial",
-                                         "LabeledFinal",
-                                         "UnLabeledFinal",
-                                         "porEtiFinal", 
-                                         "accuracy",
-                                         "AUC",
-                                         "PR",
-                                         "F1score")
-}
-
-
-
-//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//Generamos resultado de los modelos semisupervisado SelfTraining (por ahora) y lo volcamos en el DF de resultados
-//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-def generadorModeloSemiAndSuperResutladosCompleto [
-    FeatureType,
-    E <: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M],
-    M <: org.apache.spark.ml.classification.ProbabilisticClassificationModel[FeatureType, M]
-  ] (featurization:Pipeline,
-     datosTest:DataFrame,
-     datosTraining:DataFrame,
-     modelosStatgePipeline:Array[(String,PipelineStage)],
-     info:DataFrame,
-     porcentajeEtiquetado:Array[Double],
-     threshold:Array[Double],
-     tiposClasi:Array[String]):DataFrame= 
-{
-  var newdf= info  
-  for (posPorcentaje <-porcentajeEtiquetado){
-    for (posThres <-threshold){
-      for(posClasi <-tiposClasi) {        
-        for (posPipeline <- 0 to (modelosStatgePipeline.size-1)){
-          //miramos que clasificador base es para despues poner su resultado en la posicion correspondiente dentro del DataFrame
-          if (modelosStatgePipeline(posPipeline)._1.contentEquals(posClasi)){ 
-            var modeloTipadoSSC = modelosStatgePipeline(posPipeline)._2.asInstanceOf[E]
-            // generamos la instacia para el SelfTrainning con los porcentajes y thresholds necesarios
-            var semiSupervisorInstanciaModelo = new SelfTraining(modelosStatgePipeline(posPipeline)._2.asInstanceOf[E])
-            .setPorcentaje(posPorcentaje)
-            .setThreshold(posThres)
-            // Generamos pipelines para cada modelo
-            var pipelineSemiSupervisado = new Pipeline().setStages(Array(featurization,
-                                                                         semiSupervisorInstanciaModelo)) // cogemos solo el stage de la array 
-            var model = pipelineSemiSupervisado.fit(datosTraining)
-
-            // montar un for con tres iteraciones para buscar un error coerente cuando los datos pequeños ¿?¿?
-            var resultados=model.transform(datosTest).select("prediction", "label")                                                                                        
-            //Necesitamos un RDD de predicciones y etiquetas: es MLlib
-            var predictionsAndLabelsRDD=resultados.rdd.map(row=> (row.getDouble(0), row.getDouble(1)))
-            var metrics= new MulticlassMetrics(predictionsAndLabelsRDD)
-
-            // miramos cada uno de los aciertos en funciuon de las profundidades
-            var acierto = metrics.accuracy
-
-            //Para calcular el área bajo la curva ROC y el área bajo la curva PR necesitamos la clase BinaryClassificationMetrics
-            val metrics2 = new BinaryClassificationMetrics(predictionsAndLabelsRDD)
-            //var metrics3= new MulticlassMetrics(predictionsAndLabelsRDD)
-
-             // Área bajo la curva ROC
-            var auROC_arbol = metrics2.areaUnderROC
-
-            // Área bajo la curva PR
-            var auPR_arbol = metrics2.areaUnderPR
-
-            var f1Score = metrics.fMeasure(1)
-
-            //Resultados para SemiSupervisado y supervisado
-            //accuracy
-            newdf = newdf.withColumn("accuracy",when(newdf("porcentajeEtiquetado")===posPorcentaje && 
-                                                     newdf("clasificador")===posClasi &&
-                                                     newdf("threshold")=== posThres
-                                                     , acierto).otherwise (newdf("accuracy")))
-            //AUC
-             newdf = newdf.withColumn("AUC",when(newdf("porcentajeEtiquetado")===posPorcentaje && 
-                                                 newdf("clasificador")===posClasi &&
-                                                 newdf("threshold")=== posThres
-                                                 , auROC_arbol).otherwise (newdf("AUC")))
-            //PR
-            newdf = newdf.withColumn("PR",when(newdf("porcentajeEtiquetado")===posPorcentaje && newdf("clasificador")===posClasi, auPR_arbol).
-                            otherwise (newdf("PR")))
-
-            //f1score
-            newdf = newdf.withColumn("F1score",when(newdf("porcentajeEtiquetado")===posPorcentaje && 
-                                                    newdf("clasificador")===posClasi &&
-                                                    newdf("threshold")=== posThres
-                                                    ,f1Score).otherwise (newdf("F1score")))
-            //iter
-            newdf = newdf.withColumn("iteracion",when(newdf("porcentajeEtiquetado")===posPorcentaje && 
-                                                      newdf("clasificador")===posClasi &&
-                                                      newdf("threshold")=== posThres
-                                                      , semiSupervisorInstanciaModelo.getIter()).otherwise (newdf("iteracion")))
-            //LabeledInicial 
-            newdf = newdf.withColumn("LabeledInicial",when(newdf("porcentajeEtiquetado")===posPorcentaje && newdf("clasificador")===posClasi
-                                                           , semiSupervisorInstanciaModelo.getDataLabeledIni()).otherwise (newdf("LabeledInicial")))
-            //UnLabeledInicial
-            newdf = newdf.withColumn("UnLabeledInicial",when(newdf("porcentajeEtiquetado")===posPorcentaje && 
-                                                             newdf("clasificador")===posClasi &&
-                                                             newdf("threshold")=== posThres
-                                                           , semiSupervisorInstanciaModelo.getUnDataLabeledIni()).otherwise (newdf("UnLabeledInicial")))   
-            //LabeledFinal
-            newdf = newdf.withColumn("LabeledFinal",when(newdf("porcentajeEtiquetado")===posPorcentaje && 
-                                                         newdf("clasificador")===posClasi &&
-                                                         newdf("threshold")=== posThres
-                                                         , semiSupervisorInstanciaModelo.getDataLabeledFinal()).otherwise (newdf("LabeledFinal")))
-            //UnLabeledFinal
-            newdf = newdf.withColumn("UnLabeledFinal",when(newdf("porcentajeEtiquetado")===posPorcentaje && 
-                                                           newdf("clasificador")===posClasi &&
-                                                           newdf("threshold")=== posThres
-                                                           , semiSupervisorInstanciaModelo.getUnDataLabeledFinal()).otherwise (newdf("UnLabeledFinal")))
-            //Etiquetado % final
-            // calculo -> 1 -(semiSupervisorInstanciaModelo.getUnDataLabeledFinal() / semiSupervisorInstanciaModelo.getUnDataLabeledIni())
-            newdf = newdf.withColumn("porEtiFinal",when(newdf("porcentajeEtiquetado")===posPorcentaje && 
-                                                        newdf("clasificador")===posClasi &&
-                                                        newdf("threshold")=== posThres
-                                                           , (1 -(semiSupervisorInstanciaModelo.getUnDataLabeledFinal().toDouble /
-                                                                 semiSupervisorInstanciaModelo.getUnDataLabeledIni().toDouble))).otherwise (newdf("UnLabeledFinal"))) 
-            
-            
-          }  
-        }
-      } 
-    }
-  }
-  newdf
-}
-
-
-
-
-
-// COMMAND ----------
-
-// DBTITLE 1,SSC - SelfTrainning - ClaseCompleta (Nuevo Clasificador)
+// DBTITLE 1,Class Supervised (for labels reduction)
 import org.apache.spark.ml.util.Identifiable
+
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.ml.classification.DecisionTreeClassifier
+import org.apache.spark.mllib.linalg.DenseVector
+import sqlContext.implicits._
+import org.apache.spark.sql.functions.udf
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// Clase supervisada donde solo entrenamos los datos etiquetado
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+class Supervised [
+  FeatureType,
+  E <: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M],
+  M <: org.apache.spark.ml.classification.ProbabilisticClassificationModel[FeatureType, M]
+] (
+    val uid: String,
+    val baseClassifier: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M],
+  
+    
+  ) extends 
+org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M]
+//org.apache.spark.ml.classification.ClassifierParams[FeatureType, E, M]
+with Serializable {
+  var columnNameNewLabels :String ="labelSelection"
+  //uid
+  def this(classifier: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M]) =
+    this(Identifiable.randomUID("Supervised"), classifier)
+  
+  // set column labels 
+  def setColumnLabelName(nameColumn:String)={
+    columnNameNewLabels = nameColumn
+    this
+  }
+  
+  
+  def train(dataset: org.apache.spark.sql.Dataset[_]): M= {
+
+    val dataUnLabeled=dataset.filter(dataset(columnNameNewLabels).isNaN).toDF
+    val dataLabeled = dataset.toDF.exceptAll(dataUnLabeled)
+    baseClassifier.fit(dataLabeled)
+
+  }
+  
+  override def copy(extra: org.apache.spark.ml.param.ParamMap):E = defaultCopy(extra)
+}
+
+
+
+
+
+// COMMAND ----------
+
+// DBTITLE 1,Class SemiSupervised- SelfTrainning 
+import org.apache.spark.ml.util.Identifiable
+
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.ml.classification.DecisionTreeClassifier
 import org.apache.spark.mllib.linalg.DenseVector
@@ -413,33 +133,39 @@ class SelfTraining [
   M <: org.apache.spark.ml.classification.ProbabilisticClassificationModel[FeatureType, M]
 ] (
     val uid: String,
-    val baseClassifier: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M],
+    var baseClassifier: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M],
     
-  ) extends 
-org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M]
-//org.apache.spark.ml.classification.ClassifierParams[FeatureType, E, M]
-with Serializable {
+  ) extends org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M] with Serializable {
   
   //variables
-  var porcentajeLabeled:Double =0.002
+  var porcentajeLabeled:Double = 1.0//0.002  // reduccion de porcentaje
   var threshold:Double=0.7
-  var maxIter:Int=10
+  var maxIter:Int=7
   var criterion:String= "threshold"
-  var kBest:Int=10 // porcentaje ...
+  var kBest:Int=10 // porcentaje podria ser una opcion
   var countDataLabeled:Long = _
   var countDataUnLabeled:Long = _
   var dataLabeledIni:Long =_
   var dataUnLabeledIni:Long = _
   var iter:Int = _
-  
+  var columnNameNewLabels :String ="labelSelection"
+
   //uid
   def this(classifier: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M]) =
-    this(Identifiable.randomUID("selfTrainning"), classifier)
-  
+  //def this() =
+    this(Identifiable.randomUID("selfTrainning"),classifier)
   
 
   //SETTERS
-
+  
+ 
+  //Set columnLabels --> Labeled and Unlabeled
+  def setColumnLabelName(nameColumn:String)={
+    columnNameNewLabels = nameColumn
+    this
+  }
+  
+  
   // set porcentaje
   def setPorcentaje(porcentaje:Double)={
     porcentajeLabeled = porcentaje
@@ -514,10 +240,10 @@ with Serializable {
     iter = 1
     //udf para coger el valor mas elevado de la array de probabilidades
     val max = udf((v: org.apache.spark.ml.linalg.Vector) => v.toArray.max)
-    //splitamos con el % seleccionado 
-    val dataSplited = resplit(dataset,porcentajeLabeled)
-    var dataLabeled = dataSplited(0).toDF
-    var dataUnLabeled = dataSplited(1).toDF
+    
+    var dataUnLabeled=dataset.filter(dataset(columnNameNewLabels).isNaN).toDF.cache()
+    var dataLabeled = dataset.toDF.exceptAll(dataUnLabeled).cache()
+
     //guardamos el tamaño inicial de los datos etiquetados y no etiquetados
     dataLabeledIni = dataLabeled.count()
     dataUnLabeledIni = dataUnLabeled.count()
@@ -526,19 +252,23 @@ with Serializable {
     dataUnLabeled = dataUnLabeled .select("features","label")
     countDataLabeled = dataLabeled.count()
     countDataUnLabeled = dataUnLabeled.count()
+    
 
+    
     // total data inicial
-    println ("EMPIEZA EL SELF-TRAINING")
+    /*println ("EMPIEZA EL SELF-TRAINING")
     println ("threshold: "+threshold)
-    println ("porcentaje Labeled: " + porcentajeLabeled)
-    println("iterancion: 0" )
     println ("total labeled Inicial " + countDataLabeled)
     println ("total unlabeled Inicial " + countDataUnLabeled)
+    */
+    
 
-    // generamos modelo y predecimos las unlabeled data
     var modeloIterST = baseClassifier.fit(dataLabeled)
     var prediIterST = modeloIterST.transform(dataUnLabeled)
-    prediIterST
+    
+    dataLabeled.unpersist()
+    dataUnLabeled.unpersist()
+    
 
     while ((iter<maxIter) && (countDataUnLabeled>0)){
 
@@ -550,34 +280,50 @@ with Serializable {
       val newLabeledFeaturesLabels = seleccionEtiquetasMayoresThreshold.select ("features","prediction").withColumnRenamed("prediction","label")
       val newUnLabeledFeaturesLabels = seleccionEtiquetasMenoresIgualThreshold.select ("features","prediction").withColumnRenamed("prediction","label")
 
-      println("tamaño filtrado por Threshold (new Labeled data): " + seleccionEtiquetasMayoresThreshold.count)
-      dataLabeled = dataLabeled.union(newLabeledFeaturesLabels)
-      dataUnLabeled = newUnLabeledFeaturesLabels
+      dataLabeled = dataLabeled.union(newLabeledFeaturesLabels).cache()
+      dataUnLabeled = newUnLabeledFeaturesLabels.cache()
       countDataUnLabeled = dataUnLabeled.count()
       countDataLabeled = dataLabeled.count()
-      println("iterancion: " + iter)
-      println ("max iter: " + maxIter)
-      println ("total labeled: "+iter +" tamaño: " + countDataLabeled)
-      println ("total unlabeled: "+iter +" tamaño: " + countDataUnLabeled)
-
-
+      /// persist dataLabeled and unlabeled
+      
+      
       if (countDataUnLabeled>0 && iter<maxIter ){
-        println ("Trainning... Next Iteration")
+        //println ("Trainning... Next Iteration")
         modeloIterST = baseClassifier.fit(dataLabeled)
         prediIterST = modeloIterST.transform(dataUnLabeled)
         iter = iter+1
       }
-      else{ //final del ciclo
-        
+      else{ //final del ciclo 
         modeloIterST = baseClassifier.fit(dataLabeled)
         //iter = maxIter
       }
+      
+      dataLabeled.unpersist()
+      dataUnLabeled.unpersist()
+    
+      
     }
-    println("ACABAMOS SELF-TRAINING Y RETORNAMOS MODELO")
+    //println("ACABAMOS SELF-TRAINING Y RETORNAMOS MODELO")
     modeloIterST
 
 
+
   }
+  
+  
+  def transform(dataset: Dataset[_]): DataFrame = {
+    // guardamos informacion de los datos etiquetados/No etiquetados totales, iniciales ...
+    print ("transform ST")
+    var newData =dataset.withColumn("dataLabeledIni", lit(dataLabeledIni))
+    newData=newData.withColumn("dataLabeledFinal", lit(countDataLabeled))
+    newData=newData.withColumn("dataUnLabeledIni", lit(dataUnLabeledIni))
+    newData=newData.withColumn("dataUnLabeledFinal", lit(countDataUnLabeled))
+    newData=newData.withColumn("Iteration", lit(iter))
+    newData
+  }
+
+  //override def copy(extra: ParamMap): UnlabeledTransformer = defaultCopy(extra)
+  override def transformSchema(schema: StructType): StructType = schema
   
   override def copy(extra: org.apache.spark.ml.param.ParamMap):E = defaultCopy(extra)
 }
@@ -588,7 +334,509 @@ with Serializable {
 
 // COMMAND ----------
 
-// DBTITLE 1,SupervisadoClasificadoresBase - BCW  (DT, LR, RF,NB, LSVM)
+// DBTITLE 1,Cross Validation - Function
+import org.apache.spark.mllib.util.MLUtils.kFold
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.PipelineStage
+import org.apache.spark.ml.Pipeline
+import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
+import org.apache.spark.mllib.evaluation.MulticlassMetrics
+
+//++++++++++++++++++++++++++++++++++++++++++++++
+//Cross Validator
+//++++++++++++++++++++++++++++++++++++++++++++++
+def crossValidation[
+    FeatureType,
+    E <: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M],
+    M <: org.apache.spark.ml.classification.ProbabilisticClassificationModel[FeatureType, M]
+  ](data:DataFrame,
+    kFolds:Int,
+    modelsPipeline:Pipeline,
+    classiType:String ="supervised",
+    instanceModelST: SelfTraining[FeatureType,E,M] =new SelfTraining(new DecisionTreeClassifier())): (Double, Double, Double, Double, Long, Long, Long, Long, Int)=
+
+{
+  // creamos la array de salida con el type y el tamaño
+
+  var folds = kFold(data.rdd, kFolds, 8L)
+  var acierto:Double = 0.0
+  var auROC:Double = 0.0
+  var auPR:Double = 0.0
+  var f1Score:Double = 0.0
+  var labeledIni:Int = 0
+  
+  var dataLabeledFinal :Long =0
+  var dataUnDataLabeledFinal:Long =0
+  var dataLabeledIni:Long =0
+  var dataUnLabeledIni:Long =0
+  var iteracionSemiSuper:Int =0
+
+
+  
+  for(iteration <-0 to kFolds-1) {
+     var dataTraining=spark.createDataFrame(folds(iteration)._1, data.schema)
+     var dataTest=spark.createDataFrame(folds(iteration)._2, data.schema)
+     dataTraining.persist()
+     dataTest.persist()
+        
+     var predictionsAndLabelsRDD=modelsPipeline.fit(dataTraining)
+      .transform(dataTest)
+      .select("prediction", "label").rdd.map(row=> (row.getDouble(0), row.getDouble(1)))
+
+
+    dataTraining.unpersist() 
+    dataTest.unpersist()
+    
+    var metrics= new MulticlassMetrics(predictionsAndLabelsRDD)
+    var metrics2 = new BinaryClassificationMetrics(predictionsAndLabelsRDD)
+    
+    // total label and unlabeled data from the begining until the end.
+    if (classiType == "selfTraining"){
+      
+      dataLabeledFinal = instanceModelST.getDataLabeledFinal() + dataLabeledFinal
+      dataUnDataLabeledFinal = instanceModelST.getUnDataLabeledFinal() + dataUnDataLabeledFinal
+      dataLabeledIni = instanceModelST.getDataLabeledIni() + dataLabeledIni
+      dataUnLabeledIni =instanceModelST.getUnDataLabeledIni() + dataUnLabeledIni
+      iteracionSemiSuper = instanceModelST.getIter() + iteracionSemiSuper 
+    }
+ 
+    acierto = metrics.accuracy+acierto
+    auROC = metrics2.areaUnderROC+auROC
+    auPR = metrics2.areaUnderPR+auPR 
+    f1Score = metrics.fMeasure(1)+f1Score
+    
+
+  }
+  acierto = acierto/kFolds
+  auROC = auROC/kFolds
+  auPR = auPR/kFolds
+  f1Score =f1Score/kFolds
+  dataLabeledFinal = dataLabeledFinal/kFolds
+  dataUnDataLabeledFinal = dataUnDataLabeledFinal/kFolds
+  dataLabeledIni = dataLabeledIni/kFolds
+  dataUnLabeledIni =dataUnLabeledIni/kFolds
+  iteracionSemiSuper = iteracionSemiSuper/kFolds
+  
+  (acierto,auROC,auPR,f1Score,dataLabeledIni,dataUnLabeledIni,dataLabeledFinal,dataUnDataLabeledFinal,iteracionSemiSuper)
+  
+}
+
+
+//crossValidation(datosDF_2,4,0.1,generadorPipelinePorClasificador(0))
+
+
+// COMMAND ----------
+
+// DBTITLE 1,FUNCIONES SUPERVISADO (RESULTADOS)
+// LIBRERIAS necesarias (IMPORTACIONES)
+
+import org.apache.spark.sql.types.{StructType,StructField,StringType,DoubleType}
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.ml.feature.StringIndexer
+import org.apache.spark.ml.feature.StringIndexerModel
+import org.apache.spark.ml.feature.VectorAssembler
+import org.apache.spark.ml.classification.DecisionTreeClassifier
+import org.apache.spark.mllib.evaluation.MulticlassMetrics
+import org.apache.spark.ml.{Pipeline, PipelineModel}
+import org.apache.spark.sql.functions.col
+import spark.implicits._
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.PipelineStage
+import scala.util.control.Breaks._
+import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
+import org.apache.spark.mllib.evaluation.MulticlassMetrics
+
+
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// GENERADOR DE DATA FRAME RESULTADOS (solo el esqueleto del DATA FRAME)
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+/* QUEDARIA:
+
++----+------------+--------------------+--------+---+---+--------+
+|data|clasificador|porcentajeEtiquetado|accuracy|AUC|PR |F1score |
++----+------------+--------------------+--------+---+---+--------+
+| BCW|          DT|                0.02|     x.x|x.x|x.x|     x.x|
+| BCW|          DT|                0.05|     x.x|x.x|x.x|     x.x|
+| BCW|          DT|                 0.1|     x.x|x.x|x.x|     x.x|
+| BCW|          DT|                 0.3|     x.x|x.x|x.x|     x.x|
+| BCW|          LR|                0.02|     x.x|x.x|x.x|     x.x|
+....
+....
+*/
+
+def generadorDataFrameResultados(datos:String,clasificadores:Array[String],porcentaje:Array[Double]):DataFrame= 
+{
+  // creamos la array de salida con el type y el tamaño
+  var seqValores=Seq[(String, String, Double, Double, Double, Double, Double)]() 
+  var posicion = 0
+  for(posClasi <-clasificadores) {
+    for(posPorce <-porcentaje){
+      seqValores = seqValores :+ (datos,posClasi,posPorce,0.00,0.00,0.00,0.00)
+    }
+  }
+  // generamos el DataFrame que sera la salida
+  spark.createDataFrame(seqValores).toDF("data", "clasificador", "porcentajeEtiquetado", "accuracy","AUC","PR","F1score")
+}
+
+//NUEVA ESTRUCTURA DE DATOS PARA SEMISUPERVISADO
+//|data| Aprendizaje| clasifi| porcentaje| threshold| iter| LabeledInicial| UnlabeledInicial| LabeledFinal| UnlabeledFinal| porEtiFinal| Acc| AUC| F1Score|
+//+----+------------+--------+-----------+----------+-----+---------------+-----------------+-------------+---------------+------------+----+----+--------+
+//| BCW| SemiSupervi|      DT|      0.001|       0.6|    2|            130|           100600|        98000|           2600|       97.4 | x.x| x.x|     x.x|
+//| BCW| SemiSupervi|      DT|      0.005|       0.6|    3|            270|           100460|        96000|           2800|       97.21| x.x| x.x|     x.x|
+//....
+
+
+
+
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// ENTRENAMIENTO + GENERACION DEL MODELO + RESULTADO CON CONJUNTO DE TEST
+//Para cada clasificador:
+// 1.- particionamos los datos en funcion del % seleccionado 2%, 5%....
+// 2.-Entrenamos el Pipeline Completo (por clasificador) + calculamos la accuracy
+//*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+//primero hacemos la particion de los datos segun el % y despues con DataSet reducido trabajamos con todos los clasificadores asi succesivamente para cada clasificador de esta forma tenemos el mismo dataSet reducido utilizado para cada modelo de entrenamiento
+
+
+
+def generadorModeloResutladosCompleto2(datos:DataFrame,
+                                      kFold:Int,
+                                      featurization:Pipeline,
+                                      modelStatePipeline:Array[(String,PipelineStage)], // TE Q SER ARRAY
+                                      info:DataFrame,
+                                      porcentajeEtiquetado:Array[Double], 
+                                      tiposClasi:Array[String]):DataFrame= 
+{
+  var newdf= info
+  var unlabeledProcess =new UnlabeledTransformer()
+  for (posPorcentaje <-porcentajeEtiquetado){
+    for(posClasi <-tiposClasi) {      
+ 
+      datos.persist()
+      
+      for (posPipeline <- 0 to (modelStatePipeline.size-1)){
+        
+        //miramos que clasificador base es para despues poner su resultado en la posicion correspondiente dentro del DataFrame
+        if (modelStatePipeline(posPipeline)._1.contentEquals(posClasi)){ 
+           println("porcentaje: " + posPorcentaje)
+           println("clasificador: " +posClasi)
+           var pipeline = new Pipeline().setStages(Array(
+                                                         featurization,
+                                                         unlabeledProcess.setPercentage(posPorcentaje),
+                                                         modelStatePipeline(posPipeline)._2))
+          
+          // CV 
+          var results = crossValidation(datos,kFold,pipeline) // ._1 -->acierto, ._2 --> auROC, ._3 -->auPR, ._4 -->f1Score)
+
+          datos.unpersist()
+
+          //accuracy
+          newdf = newdf.withColumn("accuracy",when(newdf("porcentajeEtiquetado")===posPorcentaje && newdf("clasificador")===posClasi, results._1).
+                          otherwise (newdf("accuracy")))
+          //AUC
+           newdf = newdf.withColumn("AUC",when(newdf("porcentajeEtiquetado")===posPorcentaje && newdf("clasificador")===posClasi, results._2).
+                          otherwise (newdf("AUC")))
+          //PR
+          newdf = newdf.withColumn("PR",when(newdf("porcentajeEtiquetado")===posPorcentaje && newdf("clasificador")===posClasi, results._3).
+                          otherwise (newdf("PR")))
+          
+          //f1score
+          newdf = newdf.withColumn("F1score",when(newdf("porcentajeEtiquetado")===posPorcentaje && newdf("clasificador")===posClasi,results._4).
+                                   otherwise (newdf("F1score")))
+        }  
+      }
+    }
+  }
+  newdf
+}
+
+
+
+
+
+
+
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// CREACION DEL PIPELINE PARA CADA CLASIFICADOR SELECCIONADO (DT, RF , LR....)
+// Utilizamos el stage pipeline definido de featurization y añadimos un nuevo stage del clasificador 
+//*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+// Funcion creador de pipelines por clasificador
+def generadorPipelinesPorClasificador(instanciasModelos:Array[(String,PipelineStage)],
+                                      featurization:Pipeline
+                                     ):Array[(String,Pipeline)]= 
+{
+  // creamos la array de salida con el type y el tamaño
+  var salida:Array[(String,Pipeline)] = new Array[(String,Pipeline)](instanciasModelos.size) 
+  var posicion = 0
+  for(inModel <-instanciasModelos) {
+    
+    // Generamos los Pipelines para cada clasificador
+    val pipeline = new Pipeline().setStages(Array(
+                                                  featurization,
+                                                  instanciasModelos(posicion)._2 // cogemos solo el stage de la array
+                                                   ))
+    
+    salida(posicion) = (instanciasModelos(posicion)._1,pipeline) // ponemos en la array el clasificador con su pipeline--> clasificador,pipeline
+    posicion = posicion+1
+    
+  }
+  salida
+}
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// creacion un pipelineStage para cada columna de features de conversion de categorico a continuo
+//salida de array[PipelineStage]
+//*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+def indexStringColumnsStagePipeline(df:DataFrame,cols:Array[String]):(Pipeline,Array[String])= {
+  var intermedioStages:Array[(PipelineStage)] = new Array[(PipelineStage)](cols.size)
+  var posicion = 0
+  for(col <-cols) {
+    val si= new StringIndexer().setInputCol(col).setOutputCol(col+"-num")
+    intermedioStages(posicion) = si.setHandleInvalid("keep")
+    posicion = posicion +1
+  }
+  val salida = new Pipeline().setStages(intermedioStages)
+  (salida,df.columns.diff(cols))
+}
+
+
+
+
+
+
+// COMMAND ----------
+
+// DBTITLE 1,FUNCIONES SEMISUPERVISADO
+
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// CREAMOS EL TEMPLATE DE DATAFRAME PARA LOS RESULTADOS SEMISUPERVISADO
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+//NUEVA ESTRUCTURA DE DATOS PARA SEMISUPERVISADO
+//|data| clasifi| porcentaje| threshold| iter| LabeledInicial| UnlabeledInicial| LabeledFinal| UnlabeledFinal| porEtiFinal| Acc| AUC| PR| F1Score|
+//+----+--------+----------+-----------+-----+---------------+-----------------+-------------+---------------+------------+----+----+----+-------+
+//| BCW|   ST-DT|      0.001|       0.6|    2|            130|           100600|        98000|           2600|       97.4 | x.x| x.x| x.x|    x.x|
+//| BCW|   ST-DT|      0.005|       0.6|    3|            270|           100460|        96000|           2800|       97.21| x.x| x.x| x.x|    x.x|
+//....
+
+
+def generadorDataFrameResultadosSemiSuper(datos:String,
+                                          clasificadores:Array[String],
+                                          porcentaje:Array[Double],
+                                          threshold:Array[Double],    
+                                         ):DataFrame= 
+{
+  // creamos la array de salida con el type y el tamaño
+  var seqValores=Seq[(String, String,Double, Double,Int,Int,Long,Long,Long,Double,Double, Double,Double, Double)]() 
+  //var seqValores=Seq[(String, String,Double, Double,Int,Int,Int,Int,Int,Double,Double, Double,Double, Double)]() 
+  var posicion = 0
+  for(posClasi <-clasificadores) {
+    for(posPorce <-porcentaje){
+      for (posThreshold <- threshold){
+        seqValores = seqValores :+ (datos,posClasi,posPorce,posThreshold,0,0,0.toLong,0.toLong,0.toLong,0.00,0.00,0.00,0.00,0.00)
+      }
+    }
+  }
+
+  // generamos el DataFrame que sera la salida
+  spark.createDataFrame(seqValores).toDF("data",
+                                         "clasificador",
+                                         "porcentajeEtiquetado",
+                                         "threshold",
+                                         "iteracion",
+                                         "LabeledInicial",
+                                         "UnLabeledInicial",
+                                         "LabeledFinal",
+                                         "UnLabeledFinal",
+                                         "porEtiFinal", 
+                                         "accuracy",
+                                         "AUC",
+                                         "PR",
+                                         "F1score")
+}
+
+
+
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//Generamos resultado de los modelos semisupervisado SelfTraining (por ahora) y lo volcamos en el DF de resultados
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+def generadorModeloSemiAndSuperResutladosCompleto2 [
+    FeatureType,
+    E <: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M],
+    M <: org.apache.spark.ml.classification.ProbabilisticClassificationModel[FeatureType, M]
+  ] (featurization:Pipeline,
+     kfold:Int,
+     datos:DataFrame,
+     modelosStatgePipeline:Array[(String,PipelineStage)], 
+     info:DataFrame,
+     porcentajeEtiquetado:Array[Double],
+     threshold:Array[Double],
+     tiposClasi:Array[String]):DataFrame= 
+{
+  var newdf= info
+  var unlabeledProcess =new UnlabeledTransformer()
+  for (posPorcentaje <-porcentajeEtiquetado){
+    println("PERCENTAGE: " + posPorcentaje)
+    for (posThres <-threshold){
+      println("THRESHOLD: " + posThres)
+      for(posClasi <-tiposClasi) {  
+        println("CLASIFICADOR: " + posClasi)
+        for (posPipeline <- 0 to (modelosStatgePipeline.size-1)){
+          //miramos que clasificador base es para despues poner su resultado en la posicion correspondiente dentro del DataFrame
+          if (modelosStatgePipeline(posPipeline)._1.contentEquals(posClasi)){ 
+            
+            // generamos la instacia para el SelfTrainning con los thresholds necesarios
+             var semiSupervisorInstanciaModel = new SelfTraining(modelosStatgePipeline(posPipeline)._2.asInstanceOf[E]).setThreshold(posThres)
+             //var semiSupervisorInstanciaModel = modelosStatgePipeline(posPipeline)._2//.setThreshold(posThres)
+            //var semiSupervisorInstanciaModel = new SelfTraining(new DecisionTreeClassifier()).setThreshold(posThres)
+
+            // Generamos pipelines para cada modelo
+            var pipelineSemiSup = new Pipeline().setStages(Array(featurization,
+                                                                         unlabeledProcess.setPercentage(posPorcentaje),
+                                                                         semiSupervisorInstanciaModel)) // cogemos solo el stage de la array 
+            
+            
+            var results = crossValidation(datos,kfold,pipelineSemiSup,"selfTraining",semiSupervisorInstanciaModel)
+            // ._1 -->acierto, ._2 --> auROC, ._3 -->auPR, ._4 -->f1Score
+            // ._5--> dataLabeledIni, ._6-->dataUnLabeledIni,._7-->dataLabeledFinal,._8-->dataUnDataLabeledFinal,._9-->iteracionSemiSuper)
+            
+
+            //Resultados para SemiSupervisado y supervisado
+            //accuracy
+            newdf = newdf.withColumn("accuracy",when(newdf("porcentajeEtiquetado")===posPorcentaje && 
+                                                     newdf("clasificador")===posClasi &&
+                                                     newdf("threshold")=== posThres
+                                                     ,results._1).otherwise (newdf("accuracy")))
+            //AUC
+             newdf = newdf.withColumn("AUC",when(newdf("porcentajeEtiquetado")===posPorcentaje && 
+                                                 newdf("clasificador")===posClasi &&
+                                                 newdf("threshold")=== posThres
+                                                 , results._2).otherwise (newdf("AUC")))
+            //PR
+            newdf = newdf.withColumn("PR",when(newdf("porcentajeEtiquetado")===posPorcentaje && newdf("clasificador")===posClasi, results._3).
+                            otherwise (newdf("PR")))
+
+            //f1score
+            newdf = newdf.withColumn("F1score",when(newdf("porcentajeEtiquetado")===posPorcentaje && 
+                                                    newdf("clasificador")===posClasi &&
+                                                    newdf("threshold")=== posThres
+                                                    ,results._4).otherwise (newdf("F1score")))
+            //iter
+            newdf = newdf.withColumn("iteracion",when(newdf("porcentajeEtiquetado")===posPorcentaje && 
+                                                      newdf("clasificador")===posClasi &&
+                                                      newdf("threshold")=== posThres
+                                                      , results._9).otherwise (newdf("iteracion")))
+            //LabeledInicial 
+            newdf = newdf.withColumn("LabeledInicial",when(newdf("porcentajeEtiquetado")===posPorcentaje && newdf("clasificador")===posClasi
+                                                           ,  results._5 ).otherwise (newdf("LabeledInicial")))
+            //UnLabeledInicial
+            newdf = newdf.withColumn("UnLabeledInicial",when(newdf("porcentajeEtiquetado")===posPorcentaje && 
+                                                             newdf("clasificador")===posClasi &&
+                                                             newdf("threshold")=== posThres
+                                                           ,  results._6).otherwise (newdf("UnLabeledInicial")))   
+            //LabeledFinal
+            newdf = newdf.withColumn("LabeledFinal",when(newdf("porcentajeEtiquetado")===posPorcentaje && 
+                                                         newdf("clasificador")===posClasi &&
+                                                         newdf("threshold")=== posThres
+                                                         ,  results._7).otherwise (newdf("LabeledFinal")))
+            //UnLabeledFinal
+            newdf = newdf.withColumn("UnLabeledFinal",when(newdf("porcentajeEtiquetado")===posPorcentaje && 
+                                                           newdf("clasificador")===posClasi &&
+                                                           newdf("threshold")=== posThres
+                                                           ,  results._8).otherwise (newdf("UnLabeledFinal")))
+            //Etiquetado % final
+            // UnDataLabeledFinal() / UnDataLabeledIni())
+            newdf = newdf.withColumn("porEtiFinal",when(newdf("porcentajeEtiquetado")===posPorcentaje && 
+                                                        newdf("clasificador")===posClasi &&
+                                                        newdf("threshold")=== posThres
+                                                           , (1 -( results._8.toDouble/results._6.toDouble))).otherwise (newdf("porEtiFinal"))) 
+            
+            
+          }  
+        }
+      } 
+    }
+  }
+  newdf
+}
+
+
+
+
+
+// COMMAND ----------
+
+val instanciaTrainingPipelineDT = new SelfTraining(new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label"))
+
+val test =new UnlabeledTransformer().setPercentage(0.1)
+val feat = featurizationPipelineBCW.fit(datosDF_2).transform(datosDF_2)
+
+//val ff= new Pipeline().setStages(Array(test,instanciaTrainingPipelineDT))
+
+
+val ff= new Pipeline().setStages(Array(test,instanciaTrainingPipelineDT))
+val fff = new Pipeline().setStages(Array(instanciaTrainingPipelineDT))
+val results = ff.fit((feat))//.transform(feat)
+
+
+//val salida =(instanciaTrainingPipelineDT.transform(feat))
+//display(results)
+
+//valor.select("new_column").first.getInt(0)
+//display(ffff.fit.transform(feat))
+fff.getStages(0).getClass.getDeclaredMethods
+val a=new UnlabeledTransformer()
+//a.getClass.transform(feat)
+def cr[
+    FeatureType,
+    E <: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M],
+    M <: org.apache.spark.ml.classification.ProbabilisticClassificationModel[FeatureType, M]
+  ](data:DataFrame,
+    instanceModelST: PipelineStage):DataFrame={
+    instanceModelST.asInstanceOf[M].transform(data)
+    
+  
+}
+
+//fff.getStages(0).
+
+val ddd =cr(feat,instanciaTrainingPipelineDT)
+/*
+val m = Array(1,2,3,4,5)
+val n = Array("m1", "m2", "m3","m4","m5")
+m.map(x=>((x+n(x-1)),1))
+m.map(x=>((x+n(0)),m(x-1)))
+val resultado2 =m.map(x=>(x,n.map(y=>(y,x))))
+val resultado = m.map(x=>(n.map(y=>(y,x))))
+val aaa =resultado2(0)
+aaa.filter
+
+*/
+
+// COMMAND ----------
+
+instanciaTrainingPipelineDT.getDataLabeledFinal
+
+// COMMAND ----------
+
+// MAGIC %md
+// MAGIC ## ANALISIS DE LOS DIFERENTES CONJUNTO DE DATOS
+// MAGIC ##### Apartir de aquí analizamos los diferentes conjuntos de datos, tanto **supervisado** con reduccion de labels como **Semisupervisado**
+// MAGIC ##### - BCW
+// MAGIC ##### - ADULT
+// MAGIC ##### - POKER
+// MAGIC ##### - TAXI NY
+
+// COMMAND ----------
+
+// DBTITLE 1,Data Processing & Data Preparation (Featurization) - BCW  
 // LIBRERIAS necesarias (IMPORTACIONES)
 
 import org.apache.spark.sql.types.{StructType,StructField,StringType,DoubleType}
@@ -692,25 +940,29 @@ val featurizationPipelineBCW = new Pipeline().setStages(Array(
                                               indiceClasePipeline)
                                                     )
 
+
+
+// COMMAND ----------
+
+// DBTITLE 1,Supervised - BCW  (DT, LR, RF,NB)
+
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 //PIPELINE  Y EVALUACION PARA TODOS LOS CLASIFICADORES BASE
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-
-// instancia de todos los clasificadores que vamos a utilizar
-val instanciaTrainingPipelineDT = new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label")
-val instanciaTrainingPipelineRF = new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label")
-val instanciaTrainingPipelineNB = new NaiveBayes().setFeaturesCol("features").setLabelCol("label")
-val instanciaTrainingPipelineLR = new LogisticRegression().setFeaturesCol("features").setLabelCol("label")
-val instanciaTrainingPipelineLSVM = new LinearSVC().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineDT = new Supervised(new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label"))
+val instanciaTrainingPipelineRF = new Supervised(new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label"))
+val instanciaTrainingPipelineNB = new Supervised(new NaiveBayes().setFeaturesCol("features").setLabelCol("label"))
+val instanciaTrainingPipelineLR = new Supervised(new LogisticRegression().setFeaturesCol("features").setLabelCol("label"))
+//val instanciaTrainingPipelineLSVM = new Supervised(new LinearSVC().setFeaturesCol("features").setLabelCol("label")
 
 
 // array de instancias para cada clasificador base
 val arrayInstanciasClasificadores:Array[(String,PipelineStage)] = Array(("DT",instanciaTrainingPipelineDT),
                                        ("LR",instanciaTrainingPipelineLR),
                                        ("RF",instanciaTrainingPipelineRF),
-                                       ("NB",instanciaTrainingPipelineNB),
-                                       ("LSVM",instanciaTrainingPipelineLSVM) 
+                                       ("NB",instanciaTrainingPipelineNB)
+                                       //("LSVM",instanciaTrainingPipelineLSVM) 
                                       )
 
 
@@ -722,8 +974,8 @@ val arrayInstanciasClasificadores:Array[(String,PipelineStage)] = Array(("DT",in
 // 3.- tipo de datos en esta caso breast cancer wisconsin --> BCW
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-val clasificadoresBase = Array ("DT","LR","RF","NB","LSVM")
-val porcentajeLabeled = Array(0.01,0.05,0.08,0.10,0.20,0.30)
+val clasificadoresBase = Array ("DT")//Array ("DT","LR","RF","NB")//,"LSVM")
+val porcentajeLabeled = Array(0.01)//Array(0.01,0.05,0.08,0.10,0.20,0.30)
 val datosCodigo = "BCW"
 
 
@@ -737,52 +989,42 @@ val breastCancerWisconResultados = generadorDataFrameResultados(datosCodigo,clas
 //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // PIPELINE FINAL AUTOMATIZADO PARA CADA CLASIFICADOR
 //
-// FEATURIZATIONT(BCW)--> CLASIFICACOR (DT) --> RESUTADO
-//                    --> CLASIFICACOR (RF) --> RESUTADO
-//                    --> CLASIFICACOR (NB) --> RESUTADO
+// FEATURIZATIONT(BCW)--> Supervised(CLASIFICACOR (DT)) --> RESUTADO
+//                    --> Supervised(CLASIFICACOR (RF)) --> RESUTADO
+//                    --> Supervised(CLASIFICACOR (NB)) --> RESUTADO
 //                    --> .....
 //                    --> .....
-//                    --> CLASIFICACOR (XX) --> RESUTADO
+//                    --> Supervised(CLASIFICACOR (XX)) --> RESUTADO
 //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-
-// generamos los pipelines para cada clasificador base:
-val generadorPipelinePorClasificador = generadorPipelinesPorClasificador(arrayInstanciasClasificadores,featurizationPipelineBCW)
-
-//una vez tenemos el array de pipelines clasificadores entrenamos el modelo, generamos los resultados y los guardamos en un DataFrame
-val resultados_BCW=generadorModeloResutladosCompleto(datosDFLabeled_test,
-                                  datosDFLabeled_trainning,
-                                  generadorPipelinePorClasificador,
-                                  breastCancerWisconResultados,
-                                  porcentajeLabeled,
-                                  clasificadoresBase)
+val resultados_BCW = generadorModeloResutladosCompleto2(datosDF_2,
+                                      4,
+                                      featurizationPipelineBCW,
+                                      arrayInstanciasClasificadores, // TE Q SER ARRAY
+                                      breastCancerWisconResultados,
+                                      porcentajeLabeled,
+                                      clasificadoresBase)
 
 display(resultados_BCW)
-
 
 
 // COMMAND ----------
 
 // DBTITLE 1,SelfTrainning - BCW (DT, LR, RF ....)
-/*
-// intancia para SelfTrainning Clasificadore Base
-val instanciaTrainingPipelineST_DT = new SelfTraining(instanciaTrainingPipelineDT)
-val instanciaTrainingPipelineST_RF = new SelfTraining(instanciaTrainingPipelineRF)
-val instanciaTrainingPipelineST_NB = new SelfTraining(instanciaTrainingPipelineNB)
-//val instanciaTrainingPipelineST_LR = new SelfTraining(instanciaTrainingPipelineLSVM)
 
-// array de instancias para cada clasificadorBase en SelfTrainning
-val arrayInstanciasClasificadoresST:Array[(String,PipelineStage)] = Array(("ST-DT",instanciaTrainingPipelineDT),
-                                       ("ST-LR",instanciaTrainingPipelineLR),
-                                       ("ST-RF",instanciaTrainingPipelineRF),
-                                       ("ST-NB",instanciaTrainingPipelineNB))
-*/
+
+val instanciaTrainingPipelineDT = new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineRF = new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineNB = new NaiveBayes().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineLR = new LogisticRegression().setFeaturesCol("features").setLabelCol("label")
+
 
 val arrayInstanciasClasificadores_BCW_NewST:Array[(String,PipelineStage)] = Array(("ST-DT",instanciaTrainingPipelineDT),
-                                       ("ST-LR",instanciaTrainingPipelineLR),
+                                      ("ST-LR",instanciaTrainingPipelineLR),
                                        ("ST-RF",instanciaTrainingPipelineRF),
                                        ("ST-NB",instanciaTrainingPipelineNB)
                                       )
+
 
 
 val clasificadoresBase = Array("ST-DT","ST-LR","ST-RF","ST-NB")//Array ("DT","LR","RF","NB","LSVM")
@@ -799,24 +1041,20 @@ val resultadosBCW_ST=generadorDataFrameResultadosSemiSuper(datosCodigo,
                                          )
 
 
-val resultadosBCW_STFinal =generadorModeloSemiAndSuperResutladosCompleto(featurizationPipelineBCW,
-                                              datosDFLabeled_test,
-                                              datosDFLabeled_trainning,
-                                              arrayInstanciasClasificadores_BCW_NewST,
-                                              resultadosBCW_ST,
-                                              porcentajeLabeledBCW_ST,
-                                              umbral,
-                                              clasificadoresBase)
+val resultadosBCW_STFinal =generadorModeloSemiAndSuperResutladosCompleto2(featurizationPipelineBCW, 
+                                                                         4,
+                                                                         datosDF_2,
+                                                                         arrayInstanciasClasificadores_BCW_NewST,
+                                                                         resultadosBCW_ST,
+                                                                         porcentajeLabeledBCW_ST,
+                                                                         umbral,
+                                                                         clasificadoresBase)
 
 display(resultadosBCW_STFinal)
 
 // COMMAND ----------
 
-resultadosBCW_STFinal.select("porcentajeEtiquetado").distinct.collect
-
-// COMMAND ----------
-
-// DBTITLE 1,SupervisadoClasificadoresBase - Adult Income(DT, LR, RF,NB, LSVM)
+// DBTITLE 1, Data Processing & Data Preparation (Featurization) - ADULT
 // LIBRERIAS necesarias (IMPORTACIONES)
 
 import org.apache.spark.sql.types.{StructType,StructField,StringType,DoubleType}
@@ -982,29 +1220,31 @@ val featurizationPipelineAdult = new Pipeline().setStages(Array(indexStringFeatu
                                                                 indiceClasePipelineAdult))
 
 
+
+
+
+
+// COMMAND ----------
+
+// DBTITLE 1,Supervised - ADULT  (DT, LR, RF,NB)
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 //PIPELINE  Y EVALUACION PARA TODOS LOS CLASIFICADORES BASE
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-
-// instancia de todos los clasificadores que vamos a utilizar
-val instanciaTrainingPipelineDT = new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label")
-instanciaTrainingPipelineDT.setMaxBins(42) // se necesita el numero maximo de opciones en las features ya que es superior que el standard
-val instanciaTrainingPipelineRF = new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label")
-instanciaTrainingPipelineRF.setMaxBins(42)
-val instanciaTrainingPipelineNB = new NaiveBayes().setFeaturesCol("features").setLabelCol("label")
-val instanciaTrainingPipelineLR = new LogisticRegression().setFeaturesCol("features").setLabelCol("label")
-val instanciaTrainingPipelineLSVM = new LinearSVC().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineDT = new Supervised(new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label").setMaxBins(42))
+val instanciaTrainingPipelineRF = new Supervised(new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label").setMaxBins(42))
+val instanciaTrainingPipelineNB = new Supervised(new NaiveBayes().setFeaturesCol("features").setLabelCol("label"))
+val instanciaTrainingPipelineLR = new Supervised(new LogisticRegression().setFeaturesCol("features").setLabelCol("label"))
+//val instanciaTrainingPipelineLSVM = new Supervised(new LinearSVC().setFeaturesCol("features").setLabelCol("label")
 
 
 // array de instancias para cada clasificador base
 val arrayInstanciasClasificadores:Array[(String,PipelineStage)] = Array(("DT",instanciaTrainingPipelineDT),
                                        ("LR",instanciaTrainingPipelineLR),
                                        ("RF",instanciaTrainingPipelineRF),
-                                       ("NB",instanciaTrainingPipelineNB),
-                                       ("LSVM",instanciaTrainingPipelineLSVM) 
+                                       ("NB",instanciaTrainingPipelineNB)
+                                       //("LSVM",instanciaTrainingPipelineLSVM) 
                                       )
-
 
 
 //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -1014,8 +1254,8 @@ val arrayInstanciasClasificadores:Array[(String,PipelineStage)] = Array(("DT",in
 // 3.- tipo de datos en esta caso breast cancer wisconsin --> BCW
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-val clasificadoresBase = Array("DT","LR","RF","NB","LSVM")
-val porcentajeLabeled = Array(0.002,0.005,0.01,0.05,0.10,0.30)
+val clasificadoresBase = Array("DT")//Array("DT","LR","RF","NB","LSVM")
+val porcentajeLabeled = Array(0.002)//Array(0.002,0.005,0.01,0.05,0.10,0.30)
 val datosCodigo = "ADULT"
 
 
@@ -1038,22 +1278,15 @@ val adultResultados = generadorDataFrameResultados(datosCodigo,clasificadoresBas
 //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 
-// generamos los pipelines para cada clasificador base:
-val generadorPipelinePorClasificadorAdult = generadorPipelinesPorClasificador(arrayInstanciasClasificadores,featurizationPipelineAdult)
+val resultados_ADULT = generadorModeloResutladosCompleto2(income_trainningDF_converted,
+                                      4,
+                                      featurizationPipelineAdult,
+                                      arrayInstanciasClasificadores,
+                                      adultResultados,
+                                      porcentajeLabeled,
+                                      clasificadoresBase)
 
-val resultados_ADULT=generadorModeloResutladosCompleto(datosDFLabeled_testAdult,
-                                  datosDFLabeled_trainningAdult,
-                                  generadorPipelinePorClasificadorAdult,
-                                  adultResultados,
-                                  porcentajeLabeled,
-                                  clasificadoresBase)
-
-resultados_ADULT.show()
-
-
-
-
-
+display(resultados_ADULT)
 
 
 
@@ -1064,30 +1297,25 @@ display(resultados_ADULT)
 // COMMAND ----------
 
 // DBTITLE 1,SelfTrainning - ADULT (DT, LR, RF ....)
-/*
-// intancia para SelfTrainning Clasificadore Base
-val instanciaTrainingPipelineST_DT = new SelfTraining(instanciaTrainingPipelineDT)
-val instanciaTrainingPipelineST_RF = new SelfTraining(instanciaTrainingPipelineRF)
-val instanciaTrainingPipelineST_NB = new SelfTraining(instanciaTrainingPipelineNB)
-//val instanciaTrainingPipelineST_LR = new SelfTraining(instanciaTrainingPipelineLSVM)
 
-// array de instancias para cada clasificadorBase en SelfTrainning
-val arrayInstanciasClasificadoresST:Array[(String,PipelineStage)] = Array(("ST-DT",instanciaTrainingPipelineDT),
-                                       ("ST-LR",instanciaTrainingPipelineLR),
-                                       ("ST-RF",instanciaTrainingPipelineRF),
-                                       ("ST-NB",instanciaTrainingPipelineNB))
-*/
 
-val arrayInstanciasClasificadoresNewSSC:Array[(String,PipelineStage)] = Array(("ST-DT",instanciaTrainingPipelineDT),
-                                       ("ST-LR",instanciaTrainingPipelineLR),
+
+val instanciaTrainingPipelineDT = new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label").setMaxBins(42)
+val instanciaTrainingPipelineRF = new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label").setMaxBins(42)
+val instanciaTrainingPipelineNB = new NaiveBayes().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineLR = new LogisticRegression().setFeaturesCol("features").setLabelCol("label")
+
+
+val arrayInstanciasClasificadores_NewST:Array[(String,PipelineStage)] = Array(("ST-DT",instanciaTrainingPipelineDT),
+                                      ("ST-LR",instanciaTrainingPipelineLR),
                                        ("ST-RF",instanciaTrainingPipelineRF),
                                        ("ST-NB",instanciaTrainingPipelineNB)
                                       )
 
 
-val clasificadoresBase = Array("ST-DT","ST-LR","ST-RF","ST-NB")//Array ("DT","LR","RF","NB","LSVM")
-val porcentajeLabeled = Array(0.002,0.005,0.01,0.05,0.10,0.30)//Array(0.001,0.005,0.01,0.05,0.10,0.30)
-val umbral= Array(0.4,0.5,0.6,0.7,0.8,0.85,0.9,0.95)
+val clasificadoresBase = Array("ST-DT")//Array("ST-DT","ST-LR","ST-RF","ST-NB")//Array ("DT","LR","RF","NB","LSVM")
+val porcentajeLabeled = Array(0.002)//Array(0.002,0.005,0.01,0.05,0.10,0.30)//Array(0.001,0.005,0.01,0.05,0.10,0.30)
+val umbral= Array(0.4)//Array(0.4,0.5,0.6,0.7,0.8,0.85,0.9,0.95)
 val datosCodigo = "ADULT"
 
 
@@ -1099,20 +1327,21 @@ val resultadosAdultST=generadorDataFrameResultadosSemiSuper(datosCodigo,
                                          )
 
 
-val resultadosAdultSTFinal =generadorModeloSemiAndSuperResutladosCompleto(featurizationPipelineAdult,
-                                              datosDFLabeled_testAdult,
-                                              datosDFLabeled_trainningAdult,
-                                              arrayInstanciasClasificadoresNewSSC,
-                                              resultadosAdultST,
-                                              porcentajeLabeled,
-                                              umbral,
-                                              clasificadoresBase)
+val resultAdult_ST =generadorModeloSemiAndSuperResutladosCompleto2(featurizationPipelineAdult, 
+                                                                         4,
+                                                                         income_trainningDF_converted,
+                                                                         arrayInstanciasClasificadores_NewST,
+                                                                         resultadosAdultST,
+                                                                         porcentajeLabeled,
+                                                                         umbral,
+                                                                         clasificadoresBase)
 
+display(resultAdult_ST)
 
 
 // COMMAND ----------
 
-// DBTITLE 1,SupervisadoClasificadoresBase - Poker Hand(DT, LR, RF,NB, LSVM)
+// DBTITLE 1,Data Processing & Data Preparation (Featurization) - POKER
 // LIBRERIAS necesarias (IMPORTACIONES)
 
 import org.apache.spark.sql.types.{StructType,StructField,StringType,DoubleType}
@@ -1242,25 +1471,29 @@ val featurizationPipelinePoker = new Pipeline().setStages(Array(
 //val featPoker=featurizationPipelinePoker.fit(datosDFLabeled_trainningPOKER).transform(datosDFLabeled_trainningPOKER)
 
 
+
+
+// COMMAND ----------
+
+// DBTITLE 1,SupervisadoClasificadoresBase - POKER (DT, LR, RF,NB) 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 //PIPELINE  Y EVALUACION PARA TODOS LOS CLASIFICADORES BASE
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 
-// instancia de todos los clasificadores que vamos a utilizar
-val instanciaTrainingPipelineDT = new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label")
-val instanciaTrainingPipelineRF = new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label")
-val instanciaTrainingPipelineNB = new NaiveBayes().setFeaturesCol("features").setLabelCol("label")
-val instanciaTrainingPipelineLR = new LogisticRegression().setFeaturesCol("features").setLabelCol("label")
-val instanciaTrainingPipelineLSVM = new LinearSVC().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineDT = new Supervised(new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label"))
+val instanciaTrainingPipelineRF = new Supervised(new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label"))
+val instanciaTrainingPipelineNB = new Supervised(new NaiveBayes().setFeaturesCol("features").setLabelCol("label"))
+val instanciaTrainingPipelineLR = new Supervised(new LogisticRegression().setFeaturesCol("features").setLabelCol("label"))
+//val instanciaTrainingPipelineLSVM = new Supervised(new LinearSVC().setFeaturesCol("features").setLabelCol("label")
 
 
 // array de instancias para cada clasificador base
 val arrayInstanciasClasificadores:Array[(String,PipelineStage)] = Array(("DT",instanciaTrainingPipelineDT),
                                        ("LR",instanciaTrainingPipelineLR),
                                        ("RF",instanciaTrainingPipelineRF),
-                                       ("NB",instanciaTrainingPipelineNB),
-                                       ("LSVM",instanciaTrainingPipelineLSVM) 
+                                       ("NB",instanciaTrainingPipelineNB)
+                                       //("LSVM",instanciaTrainingPipelineLSVM) 
                                       )
 
 
@@ -1271,8 +1504,8 @@ val arrayInstanciasClasificadores:Array[(String,PipelineStage)] = Array(("DT",in
 // 3.- tipo de datos en esta caso breast cancer wisconsin --> BCW
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-val clasificadoresBase = Array("DT","LR","RF","NB","LSVM")
-val porcentajeLabeled = Array(0.0001,0.001,0.01,0.05,0.1,0.3)//Array(0.0001) //Array(0.0001,0.001,0.01,0.1,0.3)
+val clasificadoresBase = Array("DT")//Array("DT","LR","RF","NB")//,"LSVM")
+val porcentajeLabeled = Array(0.0001)//Array(0.0001,0.001,0.01,0.05,0.1,0.3)//Array(0.0001) //Array(0.0001,0.001,0.01,0.1,0.3)
 val datosCodigo = "POKER"
 
 
@@ -1295,63 +1528,68 @@ val pokerResultados = generadorDataFrameResultados(datosCodigo,clasificadoresBas
 //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 
-// generamos los pipelines para cada clasificador base:
-val generadorPipelinePorClasificador = generadorPipelinesPorClasificador(arrayInstanciasClasificadores,featurizationPipelinePoker)
-
-//una vez tenemos el array de pipelines clasificadores entrenamos el modelo, generamos los resultados y los guardamos en un DataFrame
-val resultados_Poker=generadorModeloResutladosCompleto(datosDFLabeled_testPOKER,
-                                  datosDFLabeled_trainningPOKER,
-                                  generadorPipelinePorClasificador,
-                                  pokerResultados,
-                                  porcentajeLabeled,
-                                  clasificadoresBase)
-
-resultados_Poker.show()
-//resultados_Poker.write.save(PATH + "resultsPOKER")
-
-
-// COMMAND ----------
+val resultados_Poker = generadorModeloResutladosCompleto2(datosDFNew,
+                                      4,
+                                      featurizationPipelinePoker,
+                                      arrayInstanciasClasificadores, // TE Q SER ARRAY
+                                      pokerResultados,
+                                      porcentajeLabeled,
+                                      clasificadoresBase)
 
 display(resultados_Poker)
+
 
 // COMMAND ----------
 
 // DBTITLE 1,SelfTrainning - POKER (DT, LR, RF ....)
-val arrayInstanciasClasificadores_POKER_NewST:Array[(String,PipelineStage)] = Array(("ST-DT",instanciaTrainingPipelineDT),
-                                       ("ST-LR",instanciaTrainingPipelineLR),
+
+
+
+
+val instanciaTrainingPipelineDT = new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineRF = new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineNB = new NaiveBayes().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineLR = new LogisticRegression().setFeaturesCol("features").setLabelCol("label")
+
+
+val arrayInstanciasClasificadores_NewST:Array[(String,PipelineStage)] = Array(("ST-DT",instanciaTrainingPipelineDT),
+                                      ("ST-LR",instanciaTrainingPipelineLR),
                                        ("ST-RF",instanciaTrainingPipelineRF),
                                        ("ST-NB",instanciaTrainingPipelineNB)
                                       )
 
 
-val clasificadoresBase = Array("ST-DT","ST-LR","ST-RF","ST-NB")//Array ("DT","LR","RF","NB","LSVM")
-val porcentajeLabeledPOKER_ST = Array(0.0001,0.001,0.01,0.05,0.1,0.3)
-val umbral= Array(0.4,0.5,0.6,0.7,0.8,0.85,0.9,0.95)
+val clasificadoresBase = Array("ST-DT")//Array("ST-DT","ST-LR","ST-RF","ST-NB")
+val porcentajeLabeled = Array(0.0001)//Array(0.0001,0.001,0.01,0.05,0.1,0.3)
+val umbral= Array(0.4)//Array(0.4,0.5,0.6,0.7,0.8,0.85,0.9,0.95)
 val datosCodigo = "POKER"
 
 
 
-val resultadosPOKER_ST=generadorDataFrameResultadosSemiSuper(datosCodigo,
+val resultsPOKER_ST=generadorDataFrameResultadosSemiSuper(datosCodigo,
                                           clasificadoresBase,
-                                          porcentajeLabeledPOKER_ST,
+                                          porcentajeLabeled,
                                           umbral    
                                          )
 
 
-val resultadosPOKER_STFinal =generadorModeloSemiAndSuperResutladosCompleto(featurizationPipelinePoker,
-                                              datosDFLabeled_testPOKER,
-                                              datosDFLabeled_trainningPOKER,
-                                              arrayInstanciasClasificadores_POKER_NewST,
-                                              resultadosPOKER_ST,
-                                              porcentajeLabeledPOKER_ST,
-                                              umbral,
-                                              clasificadoresBase)
 
-display(resultadosPOKER_STFinal)
+val resultPoker_ST =generadorModeloSemiAndSuperResutladosCompleto2(featurizationPipelinePoker, 
+                                                                         4,
+                                                                         datosDFNew,
+                                                                         arrayInstanciasClasificadores_NewST,
+                                                                         resultsPOKER_ST,
+                                                                         porcentajeLabeled,
+                                                                         umbral,
+                                                                         clasificadoresBase)
+
+display(resultPoker_ST)
+
+
 
 // COMMAND ----------
 
-// DBTITLE 1,SupervisadoClasificadoresBase - TAXI NY(DT, LR, RF,NB, LSVM)
+// DBTITLE 1,Data Processing & Data Preparation (Featurization) - POKER
 import scala.math.sqrt
 import scala.math.pow
 import scala.math.toRadians
@@ -1522,6 +1760,7 @@ val training_reg_final_filtrado_DF_3 = training_reg_final_filtrado_DF_2.filter((
 val training_reg_final_filtrado_DF= training_reg_final_filtrado_DF_3.filter((training_reg_final_DF("passenger_count")<=6)) //eliminamos los casos menos representativos como 0 pasajersos (es un error) 7,8,9(que suman 4 casos en total)
 
 // CREAMOS LA CLASE MAYOR DE 15 MIN O MENOR IGUAL 
+println("creamos clase binaria")
 val training_reg_final_DF_new=training_reg_final_DF.withColumn("clase",when(((training_reg_final_DF("trip_duration"))>900) ,"Long").
                                            when(((training_reg_final_DF("trip_duration"))<= 900) ,"Short"))
 
@@ -1587,25 +1826,32 @@ val featurizationPipelineNY = new Pipeline().setStages(Array(
 //val featNY=featurizationPipelineNY.fit(datosDFLabeled_trainning).transform(datosDFLabeled_trainning)
 
 
+
+
+// COMMAND ----------
+
+// DBTITLE 1,SupervisadoClasificadoresBase - TAXI NY(DT, LR, RF,NB) 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 //PIPELINE  Y EVALUACION PARA TODOS LOS CLASIFICADORES BASE
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 
 // instancia de todos los clasificadores que vamos a utilizar
-val instanciaTrainingPipelineDT = new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label")
-val instanciaTrainingPipelineRF = new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label")
-val instanciaTrainingPipelineNB = new NaiveBayes().setFeaturesCol("features").setLabelCol("label")
-val instanciaTrainingPipelineLR = new LogisticRegression().setFeaturesCol("features").setLabelCol("label")
-val instanciaTrainingPipelineLSVM = new LinearSVC().setFeaturesCol("features").setLabelCol("label")
+
+
+val instanciaTrainingPipelineDT = new Supervised(new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label"))
+val instanciaTrainingPipelineRF = new Supervised(new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label"))
+val instanciaTrainingPipelineNB = new Supervised(new NaiveBayes().setFeaturesCol("features").setLabelCol("label"))
+val instanciaTrainingPipelineLR = new Supervised(new LogisticRegression().setFeaturesCol("features").setLabelCol("label"))
+//val instanciaTrainingPipelineLSVM = new Supervised(new LinearSVC().setFeaturesCol("features").setLabelCol("label")
 
 
 // array de instancias para cada clasificador base
 val arrayInstanciasClasificadores:Array[(String,PipelineStage)] = Array(("DT",instanciaTrainingPipelineDT),
                                        ("LR",instanciaTrainingPipelineLR),
                                        ("RF",instanciaTrainingPipelineRF),
-                                       ("NB",instanciaTrainingPipelineNB),
-                                       ("LSVM",instanciaTrainingPipelineLSVM) 
+                                       ("NB",instanciaTrainingPipelineNB)
+                                       //("LSVM",instanciaTrainingPipelineLSVM) 
                                       )
 
 
@@ -1616,8 +1862,8 @@ val arrayInstanciasClasificadores:Array[(String,PipelineStage)] = Array(("DT",in
 // 3.- tipo de datos en esta caso breast cancer wisconsin --> BCW
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-val clasificadoresBase = Array("DT","LR","RF","NB","LSVM")
-val porcentajeLabeled = Array(0.0001,0.001,0.01,0.05,0.1,0.3)//(0.01,0.05,0.10,0.30)
+val clasificadoresBase =  Array("DT")//Array("DT","LR","RF","NB","LSVM")
+val porcentajeLabeled =   Array(0.0001)//Array(0.0001,0.001,0.01,0.05,0.1,0.3)//(0.01,0.05,0.10,0.30) //Array(0.01)
 val datosCodigo = "TXNY"
 
 
@@ -1640,54 +1886,64 @@ val NYResultados = generadorDataFrameResultados(datosCodigo,clasificadoresBase,p
 //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 
-// generamos los pipelines para cada clasificador base:
-val generadorPipelinePorClasificador = generadorPipelinesPorClasificador(arrayInstanciasClasificadores,featurizationPipelineNY)
+val resultados_NY = generadorModeloResutladosCompleto2(datosDF_NY,
+                                      4,
+                                      featurizationPipelineNY,
+                                      arrayInstanciasClasificadores, // TE Q SER ARRAY
+                                      NYResultados,
+                                      porcentajeLabeled,
+                                      clasificadoresBase)
 
-//una vez tenemos el array de pipelines clasificadores entrenamos el modelo, generamos los resultados y los guardamos en un DataFrame
-val resultados_NY=generadorModeloResutladosCompleto(datosDFLabeled_test,
-                                  datosDFLabeled_trainning,
-                                  generadorPipelinePorClasificador,
-                                  NYResultados,
-                                  porcentajeLabeled,
-                                  clasificadoresBase)
+
 
 display(resultados_NY)
-
 
 // COMMAND ----------
 
 // DBTITLE 1,SelfTrainning - TAXI NY (DT, LR, RF ....)
-val arrayInstanciasClasificadores_TX_NewST:Array[(String,PipelineStage)] = Array(("ST-DT",instanciaTrainingPipelineDT),
-                                       ("ST-LR",instanciaTrainingPipelineLR),
+
+
+
+
+val instanciaTrainingPipelineDT = new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineRF = new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineNB = new NaiveBayes().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineLR = new LogisticRegression().setFeaturesCol("features").setLabelCol("label")
+
+
+val arrayInstanciasClasificadores_NewST:Array[(String,PipelineStage)] = Array(("ST-DT",instanciaTrainingPipelineDT),
+                                      ("ST-LR",instanciaTrainingPipelineLR),
                                        ("ST-RF",instanciaTrainingPipelineRF),
                                        ("ST-NB",instanciaTrainingPipelineNB)
                                       )
 
 
-val clasificadoresBase = Array("ST-DT","ST-LR","ST-RF","ST-NB")//Array ("DT","LR","RF","NB","LSVM")
-val porcentajeLabeledTX_ST = Array(0.0001,0.001,0.01,0.05,0.1,0.3)
-val umbral= Array(0.4,0.5,0.6,0.7,0.8,0.85,0.9,0.95)
+val clasificadoresBase = Array("ST-DT")//Array("ST-DT","ST-LR","ST-RF","ST-NB")
+val porcentajeLabeled = Array(0.0001)//Array(0.0001,0.001,0.01,0.05,0.1,0.3)
+val umbral= Array(0.4)//Array(0.4,0.5,0.6,0.7,0.8,0.85,0.9,0.95)
 val datosCodigo = "TXNY"
 
 
 
-val resultados_ST=generadorDataFrameResultadosSemiSuper(datosCodigo,
+val resultsTaxi_ST=generadorDataFrameResultadosSemiSuper(datosCodigo,
                                           clasificadoresBase,
-                                          porcentajeLabeledTX_ST,
+                                          porcentajeLabeled,
                                           umbral    
                                          )
 
 
-val resultadosTX_STFinal =generadorModeloSemiAndSuperResutladosCompleto(featurizationPipelineNY,
-                                              datosDFLabeled_test,
-                                              datosDFLabeled_trainning,
-                                              arrayInstanciasClasificadores_TX_NewST,
-                                              resultados_ST,
-                                              porcentajeLabeledTX_ST,
-                                              umbral,
-                                              clasificadoresBase)
+val resultTaxiFinal_ST =generadorModeloSemiAndSuperResutladosCompleto2(featurizationPipelineNY, 
+                                                                         4,
+                                                                         datosDF_NY,
+                                                                         arrayInstanciasClasificadores_NewST,
+                                                                         resultsTaxi_ST,
+                                                                         porcentajeLabeled,
+                                                                         umbral,
+                                                                         clasificadoresBase)
 
-display(resultadosTX_STFinal)
+
+
+display(resultTaxiFinal_ST)
 
 // COMMAND ----------
 
@@ -1846,6 +2102,27 @@ class SelfTrainingClassifier2 [
   override def copy(extra: org.apache.spark.ml.param.ParamMap):E = defaultCopy(extra)
 }
 
+
+
+
+
+// COMMAND ----------
+
+
+val unlabeledProcess = new UnlabeledTransformer ()
+
+var semiSupervisorInstanciaModelo = new SelfTraining(new DecisionTreeClassifier())
+
+// Generamos pipelines para cada modelo
+//var pipelineSemiSup = new Pipeline().setStages(Array(featurizationPipelineBCW,unlabeledProcess,instanciaTrainingPipelineDT))
+
+var pipelineSemiSup = new Pipeline().setStages(Array(featurizationPipelineBCW,unlabeledProcess,semiSupervisorInstanciaModelo))
+val a = (pipelineSemiSup.fit(datosDF_2).transform(datosDF_2))
+
+//val b =semiSupervisorInstanciaModelo.fit(a).transform(a)
+
+
+var results = crossValidation(datosDF_2,4,pipelineSemiSup,"selfTraining",semiSupervisorInstanciaModelo)
 
 
 
