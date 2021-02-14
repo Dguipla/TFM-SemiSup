@@ -2,5 +2,5 @@
 ## Semisupervised classification methods (SSC) with Spark-ML, study and implementation 
 
 ### - Status: Ongoing
-### - Tools: DataBricks
-### - Results: with PowerBI and Python (matplotlib, Seaborn, and Plotly) 
+### - Design Tools : DataBricks with Spark (Scala)
+### - Results Tools: PowerBI and Python (matplotlib, Seaborn, and Plotly) 
