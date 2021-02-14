@@ -1136,7 +1136,7 @@ import org.apache.spark.ml.classification.LinearSVC
 
 
 
-val data = Array("titanic.csv","coil2000.csv","sonar.csv","spectfheart-1.csv","heart.csv","banana.csv","wisconsinKeel-1.csv","magic.csv")
+val data = Array("coil2000.csv","sonar.csv","spectfheart-1.csv","heart.csv","wisconsinKeel-1.csv")
 val featurizationPipeline:Array[Pipeline] = new Array[Pipeline](data.size) 
 val dataDF:Array[DataFrame] = new Array[DataFrame](data.size) 
 
@@ -1185,10 +1185,10 @@ val arrayClassifiers:Array[(String,PipelineStage)] = Array(("DT",instanciaTraini
 
 //parameters
 val classifierBase = arrayClassifiers.map(cls =>cls._1)
-val percentageLabeled = Array(0.1,0.2,0.3,0.4,1.0)
+val percentageLabeled = Array(0.05,0.1,0.15,0.2,0.3,0.6)
 val threshold= Array(0.0) // Supervised is n.a 0
 val criterion = Array("n.a") // Supervised is n.a
-val dataCode =  Array("titanic","coil2000","sonar","spectfheart","heart","banana","wisconsin","magic")
+val dataCode =  Array("coil2000","sonar","spectfheart","heart","wisconsin")
 var results:Array[DataFrame] = new Array[DataFrame](dataCode.size) 
 
 
@@ -1198,11 +1198,15 @@ for (posDataSet <- 0 to (dataCode.size-1)){
   // final pipeline models with all the configurations (parameters)
   var modelsPipeline = criterion.map(crit=>(crit,percentageLabeled.map(per=>(per,threshold.map(th=>(th,arrayClassifiers.map(clasi=>(clasi._1,new Pipeline().setStages(Array(clasi._2))))))))))
   // dataframe of final results
-  results(posDataSet) = SupervisedAndSemiSupervisedResuts (featurizationPipeline(posDataSet), 10,dataDF(posDataSet),modelsPipeline,resultsInfo)
+  results(posDataSet) = SupervisedAndSemiSupervisedResuts (featurizationPipeline(posDataSet), 4,dataDF(posDataSet),modelsPipeline,resultsInfo)
 }
 
 //display(results)
 
+
+// COMMAND ----------
+
+display(results(0).union(results(1)).union(results(2)).union(results(3)).union(results(4)))
 
 // COMMAND ----------
 
@@ -1218,12 +1222,12 @@ var SemiSupervisedData = new SemiSupervisedDataResults ()
 
 //parameters
 val classifierBase = arrayClassifiers.map(cls =>cls._1)
-val percentageLabeled = Array(1.0)//Array(0.1,0.2,0.3,0.4)
-val threshold= Array(0.9)
+val percentageLabeled = Array(0.05,0.1,0.15,0.2,0.3,0.6)//Array(0.1,0.2,0.3,0.4)
+val threshold= Array(0.7,0.8,0.9,0.95)//Array(0.9)
 val kBest= Array(0.0)
-val maxIter = 2//10
+val maxIter = 5
 val criterion = Array("threshold")
-val dataCode = Array("titanic")//Array("titanic","coil2000","sonar","spectfheart","heart","banana","wisconsin","magic")
+val dataCode = Array("coil2000","sonar","spectfheart","heart","wisconsin")//Array("titanic","coil2000","sonar","spectfheart","heart","banana","wisconsin","magic")
 
 
 var resultsSelTraining:Array[DataFrame] = new Array[DataFrame](dataCode.size) 
@@ -1236,10 +1240,10 @@ for (posDataSet <- 0 to (dataCode.size-1)){
   var modelsPipeline = pipelineModelsSelfTraining(threshold,kBest,percentageLabeled,SemiSupervisedData,arrayClassifiers,criterion,maxIter)
 
   // dataframe of final results
-  resultsSelTraining(posDataSet) = SupervisedAndSemiSupervisedResuts (featurizationPipeline(posDataSet), 10,dataDF(posDataSet),modelsPipeline,resultsInfo,SemiSupervisedData)
+  resultsSelTraining(posDataSet) = SupervisedAndSemiSupervisedResuts (featurizationPipeline(posDataSet), 4,dataDF(posDataSet),modelsPipeline,resultsInfo,SemiSupervisedData)
 }
 
-display(resultsSelTraining(0))
+//display(resultsSelTraining(0))
 
 // COMMAND ----------
 
@@ -1255,12 +1259,12 @@ var SemiSupervisedData = new SemiSupervisedDataResults ()
 
 //parameters
 val classifierBase = arrayClassifiers.map(cls =>cls._1)
-val percentageLabeled = Array(0.1,0.2,0.3,0.4)
-val threshold= Array(0.9)
+val percentageLabeled = Array(0.05,0.1,0.15,0.2,0.3,0.6)//Array(0.1,0.2,0.3,0.4)
+val threshold= Array(0.7,0.8,0.9,0.95)//Array(0.9)
 val kBest= Array(0.0)
-val maxIter = 10
+val maxIter = 5
 val criterion = Array("threshold")
-val dataCode = Array("titanic","coil2000","sonar","spectfheart","heart","banana","wisconsin","magic")
+val dataCode = Array("coil2000","sonar","spectfheart","heart","wisconsin")//Array("titanic","coil2000","sonar","spectfheart","heart","banana","wisconsin","magic")
 
 
 var resultsCoTraining:Array[DataFrame] = new Array[DataFrame](dataCode.size) 
@@ -1273,7 +1277,7 @@ for (posDataSet <- 0 to (dataCode.size-1)){
   var modelsPipeline = pipelineModelsCoTraining(threshold,kBest,percentageLabeled,SemiSupervisedData,arrayClassifiers,criterion,maxIter)
 
   // dataframe of final results
-  resultsCoTraining(posDataSet) = SupervisedAndSemiSupervisedResuts (featurizationPipeline(posDataSet), 10,dataDF(posDataSet),modelsPipeline,resultsInfo,SemiSupervisedData)
+  resultsCoTraining(posDataSet) = SupervisedAndSemiSupervisedResuts (featurizationPipeline(posDataSet), 4,dataDF(posDataSet),modelsPipeline,resultsInfo,SemiSupervisedData)
 }
 
 //display(results)
@@ -1299,7 +1303,7 @@ display(results(0).union(results(1)).union(results(2)).union(results(3)).union(r
 // COMMAND ----------
 
 // MAGIC %md
-// MAGIC ## Analizing different datasets 
+// MAGIC ## Analizing different datasets for BIG DATA
 // MAGIC ##### **Supervised** with data label reductions and **Semisupervisado** for Big data 
 // MAGIC ##### - BCW
 // MAGIC ##### - ADULT
