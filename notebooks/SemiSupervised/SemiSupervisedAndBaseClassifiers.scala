@@ -738,7 +738,6 @@ class CoTraining [
     resultsSelfTrainingData.iteracionSemiSuper = iter
     
     //ini
-    println("final model")
     countDataUnLabeled_1 = 1
     countDataUnLabeled_2 = 1
     
@@ -1136,7 +1135,7 @@ import org.apache.spark.ml.classification.LinearSVC
 
 
 
-val data = Array("coil2000.csv","sonar.csv","spectfheart-1.csv","heart.csv","wisconsinKeel-1.csv")
+val data = Array("coil2000.csv","sonar.csv","spectfheart-1.csv","heart.csv","wisconsinKeel-1.csv")//Array("coil2000.csv")//Array("coil2000.csv","sonar.csv","spectfheart-1.csv","heart.csv","wisconsinKeel-1.csv")
 val featurizationPipeline:Array[Pipeline] = new Array[Pipeline](data.size) 
 val dataDF:Array[DataFrame] = new Array[DataFrame](data.size) 
 
@@ -1175,10 +1174,10 @@ val instanciaTrainingPipelineNB = new Supervised(new NaiveBayes().setFeaturesCol
 val instanciaTrainingPipelineLR = new Supervised(new LogisticRegression().setFeaturesCol("features").setLabelCol("label"))
 
 
-val arrayClassifiers:Array[(String,PipelineStage)] = Array(("DT",instanciaTrainingPipelineDT),
-                                       ("LR",instanciaTrainingPipelineLR),
-                                       ("RF",instanciaTrainingPipelineRF),
-                                       ("NB",instanciaTrainingPipelineNB)
+val arrayClassifiers:Array[(String,PipelineStage)] = Array(("DT-Sark",instanciaTrainingPipelineDT),
+                                       ("LR-Sark",instanciaTrainingPipelineLR),
+                                       ("RF-Sark",instanciaTrainingPipelineRF),
+                                       ("NB-Sark",instanciaTrainingPipelineNB)
                                        //("LSVM",instanciaTrainingPipelineLSVM) 
                                       )
 
@@ -1189,7 +1188,7 @@ val percentageLabeled = Array(0.05,0.1,0.15,0.2,0.3,0.6)
 val threshold= Array(0.0) // Supervised is n.a 0
 val criterion = Array("n.a") // Supervised is n.a
 val dataCode =  Array("coil2000","sonar","spectfheart","heart","wisconsin")
-var results:Array[DataFrame] = new Array[DataFrame](dataCode.size) 
+var resultsSupervised:Array[DataFrame] = new Array[DataFrame](dataCode.size) 
 
 
 for (posDataSet <- 0 to (dataCode.size-1)){
@@ -1198,7 +1197,7 @@ for (posDataSet <- 0 to (dataCode.size-1)){
   // final pipeline models with all the configurations (parameters)
   var modelsPipeline = criterion.map(crit=>(crit,percentageLabeled.map(per=>(per,threshold.map(th=>(th,arrayClassifiers.map(clasi=>(clasi._1,new Pipeline().setStages(Array(clasi._2))))))))))
   // dataframe of final results
-  results(posDataSet) = SupervisedAndSemiSupervisedResuts (featurizationPipeline(posDataSet), 4,dataDF(posDataSet),modelsPipeline,resultsInfo)
+  resultsSupervised(posDataSet) = SupervisedAndSemiSupervisedResuts (featurizationPipeline(posDataSet), 4,dataDF(posDataSet),modelsPipeline,resultsInfo)
 }
 
 //display(results)
@@ -1211,23 +1210,33 @@ display(results(0).union(results(1)).union(results(2)).union(results(3)).union(r
 // COMMAND ----------
 
 // DBTITLE 1,COMPARING - SelfTraining
+
+// base classifiers
 val instTrainingPipelineDT = new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label")
+val instTrainingPipelineRF = new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label")
+val instTrainingPipelineNB = new NaiveBayes().setFeaturesCol("features").setLabelCol("label")
+val instTrainingPipelineLR = new LogisticRegression().setFeaturesCol("features").setLabelCol("label")
 
 
+val arrayClassifiers:Array[(String,PipelineStage)] = Array(("ST-DT-Spark",instTrainingPipelineDT),
+                                      ("ST-LR-Spark",instTrainingPipelineLR),
+                                      ("ST-RF-Spark",instTrainingPipelineRF),
+                                      ("ST-NB-Spark",instTrainingPipelineNB)
+                                      )
 
 
-val arrayClassifiers:Array[(String,PipelineStage)] = Array(("ST-DT",instTrainingPipelineDT))//,("ST-NB",instTrainingPipelineNB))
 // results for Semisupervised
 var SemiSupervisedData = new SemiSupervisedDataResults ()
 
 //parameters
 val classifierBase = arrayClassifiers.map(cls =>cls._1)
-val percentageLabeled = Array(0.05,0.1,0.15,0.2,0.3,0.6)//Array(0.1,0.2,0.3,0.4)
-val threshold= Array(0.7,0.8,0.9,0.95)//Array(0.9)
+val percentageLabeled = Array(0.05,0.15,0.3,0.6)//Array(0.05,0.1,0.15,0.2,0.3,0.6)//Array(0.1,0.2,0.3,0.4) 
+val threshold=Array(0.4,0.5,0.6)//Array(0.7,0.8,0.9,0.95)//Array(0.7,0.8,0.9,0.95)//Array(0.9) //Array(0.7,0.8,0.9)
 val kBest= Array(0.0)
 val maxIter = 5
 val criterion = Array("threshold")
-val dataCode = Array("coil2000","sonar","spectfheart","heart","wisconsin")//Array("titanic","coil2000","sonar","spectfheart","heart","banana","wisconsin","magic")
+val dataCode = Array("coil2000","sonar","spectfheart","heart","wisconsin")//Array("sonar","spectfheart","heart","wisconsin")
+//Array("coil2000")//Array("coil2000","sonar","spectfheart","heart","wisconsin")//Array("titanic","coil2000","sonar","spectfheart","heart","banana","wisconsin","magic")
 
 
 var resultsSelTraining:Array[DataFrame] = new Array[DataFrame](dataCode.size) 
@@ -1247,24 +1256,38 @@ for (posDataSet <- 0 to (dataCode.size-1)){
 
 // COMMAND ----------
 
+//display(results(1).union(results(0)))
+val results:Array[DataFrame]=resultsSelTraining
+//display(results(0).union(results(1)).union(results(2)).union(results(3)).union(results(4)))
+display(results(0).union(results(1)).union(results(2)).union(results(3)).union(results(4)))
+
+// COMMAND ----------
+
 // DBTITLE 1,COMPARING - CoTraining
+// base classifiers
 val instTrainingPipelineDT = new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label")
+val instTrainingPipelineRF = new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label")
+val instTrainingPipelineNB = new NaiveBayes().setFeaturesCol("features").setLabelCol("label")
+val instTrainingPipelineLR = new LogisticRegression().setFeaturesCol("features").setLabelCol("label")
 
 
-
-
-val arrayClassifiers:Array[(String,PipelineStage)] = Array(("CT-DT",instTrainingPipelineDT))//,("ST-NB",instTrainingPipelineNB))
+val arrayClassifiers:Array[(String,PipelineStage)] = Array(("CT-DT-Spark",instTrainingPipelineDT),
+                                      ("CT-LR-Spark",instTrainingPipelineLR),
+                                      ("CT-RF-Spark",instTrainingPipelineRF),
+                                      ("CT-NB-Spark",instTrainingPipelineNB)
+                                      )
 // results for Semisupervised
 var SemiSupervisedData = new SemiSupervisedDataResults ()
 
 //parameters
 val classifierBase = arrayClassifiers.map(cls =>cls._1)
-val percentageLabeled = Array(0.05,0.1,0.15,0.2,0.3,0.6)//Array(0.1,0.2,0.3,0.4)
-val threshold= Array(0.7,0.8,0.9,0.95)//Array(0.9)
+val percentageLabeled = Array(0.05,0.15,0.3,0.6)//Array(0.05,0.1,0.15,0.2,0.3,0.6)//Array(0.1,0.2,0.3,0.4) 
+val threshold=Array(0.4,0.5,0.6)//Array(0.7,0.8,0.9,0.95)//Array(0.7,0.8,0.9,0.95)//Array(0.9) //Array(0.7,0.8,0.9)
 val kBest= Array(0.0)
 val maxIter = 5
 val criterion = Array("threshold")
-val dataCode = Array("coil2000","sonar","spectfheart","heart","wisconsin")//Array("titanic","coil2000","sonar","spectfheart","heart","banana","wisconsin","magic")
+val dataCode = Array("coil2000","sonar","spectfheart","heart","wisconsin")
+//Array("coil2000")//Array("coil2000","sonar","spectfheart","heart","wisconsin")//Array("titanic","coil2000","sonar","spectfheart","heart","banana","wisconsin","magic")
 
 
 var resultsCoTraining:Array[DataFrame] = new Array[DataFrame](dataCode.size) 
@@ -1285,7 +1308,9 @@ for (posDataSet <- 0 to (dataCode.size-1)){
 // COMMAND ----------
 
 val results:Array[DataFrame]=resultsCoTraining
-display(results(0).union(results(1)).union(results(2)).union(results(3)).union(results(4)).union(results(5)).union(results(6)).union(results(7)))
+//display(results(0).union(results(1)).union(results(2)).union(results(3)))
+//display(results(0).union(results(1)).union(results(2)).union(results(3)).union(results(4)).union(results(5)).union(results(6)).union(results(7)))
+display(results(0))
 
 // COMMAND ----------
 
@@ -1297,8 +1322,8 @@ display(results(0).union(results(1)).union(results(2)).union(results(3)).union(r
 // COMMAND ----------
 
 //display(results(1).union(results(0)))
-//val results:Array[DataFrame]=resultsSelTraining
-display(results(0).union(results(1)).union(results(2)).union(results(3)).union(results(4)).union(results(5)).union(results(6)).union(results(7)))
+val results:Array[DataFrame]=resultsSelTraining
+display(results(0).union(results(1)).union(results(2)).union(results(3)))
 
 // COMMAND ----------
 
@@ -1606,9 +1631,9 @@ val lines_training= sc.textFile(PATH + DATA_training)
 
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//CLEANING y PRE-PROCESADO
+//Cleaning
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//Eliminamos lineasvacias
+
 
 // training
 val nonEmpty_training= lines_training.filter(_.nonEmpty).filter(y => ! y.contains("?")) // Dado que representa en el peor de los casos un 3-4% approx, lo eliminamos
@@ -1616,7 +1641,7 @@ val parsed_training= nonEmpty_training.map(line => line.split(","))
 
 
 //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//CREACION DEL ESQUEMA  Y DE LOS DATA FRAMES TANTO DE TEST COMO DE TRAINING
+//Schema
 //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 // generamos el esquema de los datos
@@ -1653,7 +1678,7 @@ withColumn("hours_per_week2", 'hours_per_week.cast("Double")).select('age, 'work
 
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//DISTRIBUCION DE CLASES
+//class distribution
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 println("DISTRIBUCION DE CLASE")
@@ -1679,21 +1704,8 @@ val distribucionAdult = Array(distribucionClase_Menor_igual_50,distribucionClase
 val diferentesClases = income_trainingDF.select("clase").distinct.count()
 
 
-
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//DATA SPLIT  TRAINING & TEST  (el split de los datos de training en 2%, 5% ... se hace posteriormente)
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-//dividimos en datos de trainning 75% y datos de test 25%
-val dataSplits= income_trainningDF_converted.randomSplit(Array(0.70, 0.30),seed = 8L)
-val datosDFLabeled_trainningAdult = dataSplits(0)
-val datosDFLabeled_testAdult = dataSplits(1)
-
-
-
-
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//FEATURIZATION -> PREPARAMOS INSTANCIAS
+//featurization
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 
@@ -1717,7 +1729,7 @@ val assemblerFeaturesLabelPipelineAdult= new VectorAssembler().setOutputCol("fea
 
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//PIPELINE FEATURIZATION para Adult
+//pipeline featurization
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 //generamos el pipeline poniendo correctamente el orden
@@ -1858,9 +1870,9 @@ import org.apache.spark.ml.classification.LinearSVC
 
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-// LECTURA
+// reading
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//leemos el documento
+
 val PATH="dbfs:/FileStore/tables/"
 val datos="pokerTraining.data"
 val lines_datos= sc.textFile(PATH + datos)//.map(x=>x.split(","))
@@ -1878,7 +1890,7 @@ datosDF.printSchema()
 
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//CLEANING y PRE-PROCESADO
+//cleaning
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 //vamos a ver que valores nulos tenemos
@@ -1888,7 +1900,7 @@ println(instanciasConNulos) //no hay nulos
 
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//DISTRIBUCION DE CLASES
+//class distribution
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 println("DISTRIBUCION DE CLASE")
@@ -1905,7 +1917,7 @@ for(cls <- 0 to (clasesTipo-1)){
 }
 
 //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//TRANSFORMACION TO BINARY CLASIFICATION
+//transformation
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 val datosDFNew=datosDF.withColumn("clase",
@@ -1920,17 +1932,9 @@ println("Alguna opcion para ganar(Almenos pareja)")
 println (100-(distribuciones(0)))
 
 
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//DATA SPLIT  TRAINING & TEST  (el split de los datos de training en 2%, 5% ... se hace posteriormente)
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-//dividimos en datos de trainning 75% y datos de test 25%
-val dataSplits= datosDFNew.randomSplit(Array(0.75, 0.25),seed = 8L)
-val datosDFLabeled_trainningPOKER = dataSplits(0)
-val datosDFLabeled_testPOKER = dataSplits(1)
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//FEATURIZATION -> PREPARAMOS INSTANCIAS
+//featurization
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 // StringIndexer para pasar el valor categorico a double de la clase , para la features no utilizamos pq ya son doubles. 
@@ -1953,7 +1957,7 @@ val assemblerFeaturesLabelPipelinePoker= new VectorAssembler().setOutputCol("fea
 
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//PIPELINE FEATURIZATION para POKER
+//pipeline
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 //generamos el pipeline
@@ -2100,16 +2104,16 @@ import org.apache.spark.ml.classification.RandomForestClassifier
 import org.apache.spark.ml.classification.LinearSVC
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-// LECTURA
+// reading
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-// Creamos un RDD con los datos que vamos a explorar
+
 import org.apache.spark.sql.functions.{concat, lit}
 val PATH="/FileStore/tables/"  
 val entreno = "train.csv"
 val training = sc.textFile(PATH + entreno)
 
-// Creamos un case class con el esquema de los datos
+// schema
 case class fields   (id: String, // 0
                      vendor_id: Int, // categorico 1
                      pickup_datetime: String, //2
@@ -2126,7 +2130,7 @@ case class fields   (id: String, // 0
 
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//CLEANING
+//cleaning
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 val nonEmpty_training= training.filter(_.nonEmpty)
@@ -2139,7 +2143,7 @@ val training_reg = parsed_training.map(x=>fields(x(0),
 
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-// MIRAMOS LA DISTRIBUCIÓN DE CLASES: 
+//class distribution
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 val longTravel = training_reg.filter(x => x.trip_duration > 900).count
@@ -2157,7 +2161,7 @@ println("Porcentaje de viajes largos: " + longTravelPorcentage)
 
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//TRANSFORMACION
+//Transformation
 // (id, vendor_id, prickup_month, pickup_day, pickup_time, passenger_count, pickup_longitude, pickup_latitude, dropoff_longitude,
 //  dropoff_latitude, store_and_fwd_flag, diff_distance, trip_duration)
 //*****************************************************************************
@@ -2261,16 +2265,7 @@ val datosDF_NY=training_reg_final_DF_new.select("vendor_id",
 
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//DATA SPLIT  TRAINING & TEST  (el split de los datos de training en 2%, 5% ... se hace posteriormente)
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-//dividimos en datos de trainning 75% y datos de test 25%
-val dataSplits=  datosDF_NY.randomSplit(Array(0.75, 0.25),seed = 8L)
-val datosDFLabeled_trainning = dataSplits(0)
-val datosDFLabeled_test = dataSplits(1)
-
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//FEATURIZATION -> PREPARAMOS INSTANCIAS
+//featurization
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 // StringIndexer para pasar el valor categorico a double de la clase , para la features no utilizamos pq ya son doubles. 
@@ -2295,7 +2290,7 @@ val assemblerFeaturesLabelPipelineNY= new VectorAssembler().setOutputCol("featur
 
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//PIPELINE FEATURIZATION para POKER
+//pipeline
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 //generamos el pipeline
