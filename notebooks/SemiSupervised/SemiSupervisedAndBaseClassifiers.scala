@@ -5,16 +5,15 @@ display(dbutils.fs.ls("/FileStore/tables"))
 // COMMAND ----------
 
 // DBTITLE 1,Class Data SemiSupervised (data result--> data labeled initial,  data unlabeled initial, dataLabeled Final, iterations...)
-//++++++++++++++++++++++++++++++++++++++++++++++
-// data results for SemiSupervised
-//++++++++++++++++++++++++++++++++++++++++++++++++
+/** data results for SemiSupervised */
+
 class  SemiSupervisedDataResults  {
 
-  var dataLabeledFinal :Long =0
-  var dataUnDataLabeledFinal:Long =0
-  var dataLabeledIni:Long =0
-  var dataUnLabeledIni:Long =0
-  var iteracionSemiSuper:Int =0
+  var dataLabeledFinal: Long = 0
+  var dataUnDataLabeledFinal: Long = 0
+  var dataLabeledIni: Long = 0
+  var dataUnLabeledIni: Long = 0
+  var iteracionSemiSuper: Int = 0
   
 }
 
@@ -28,38 +27,41 @@ import org.apache.spark.sql.{ DataFrame, Dataset }
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.functions._
 
-
-//+++++++++++++++++++++++++++++++++++++
-//class to untag data 
-//+++++++++++++++++++++++++++++++++++++++++
+/** class to untag data */
 
 class UnlabeledTransformer(override val uid: String) extends Transformer with DefaultParamsWritable {
-  
-  var percentageLabeled:Double = 0.1
-  var seedValue:Long =11L
-  var columnNameNewLabels :String ="labelSelection"
-
+  var percentageLabeled: Double = 0.1
+  var seedValue: Long = 11L
+  var columnNameNewLabels: String = "labelSelection"
   def this() = this(Identifiable.randomUID("UnlabeledTransformer"))
   
-  def setPercentage(percentage:Double)={
+  ///////////////////////////////////////////////////////////////////////////
+  // setters
+  ///////////////////////////////////////////////////////////////////////////
+
+  def setPercentage(percentage: Double) = {
     percentageLabeled= percentage
     this
    }
   
-  def setColumnLabelName(nameColumn:String)={
+  def setColumnLabelName(nameColumn: String) = {
     columnNameNewLabels = nameColumn
     this
   }
   
-  def setSeed(seedV:Long)={
+  def setSeed(seedV: Long) = {
     seedValue= seedV
     this
   }
   
+  
+  ///////////////////////////////////////////////////////////////////////////
+  // transform
+  ///////////////////////////////////////////////////////////////////////////
   override def transform(data: Dataset[_]): DataFrame = {
-    val dataSp=  data.randomSplit(Array(percentageLabeled, 1-percentageLabeled),seed = seedValue)
+    val dataSp = data.randomSplit(Array(percentageLabeled, 1-percentageLabeled),seed = seedValue)
     val dataLabeled = dataSp(0).toDF.withColumn(columnNameNewLabels,col("label"))
-    val dataUnlabeled=dataSp(1).toDF.withColumn(columnNameNewLabels,col("label")*Double.NaN) 
+    val dataUnlabeled = dataSp(1).toDF.withColumn(columnNameNewLabels,col("label")*Double.NaN) 
     dataLabeled.unionAll(dataUnlabeled)
 
   }
@@ -69,7 +71,7 @@ class UnlabeledTransformer(override val uid: String) extends Transformer with De
 }
 
 object UnlabeledTransformer extends DefaultParamsReadable[UnlabeledTransformer] {
-  override def load(path: String): UnlabeledTransformer= super.load(path)
+  override def load(path: String): UnlabeledTransformer = super.load(path)
 }
 
 
@@ -84,9 +86,8 @@ import org.apache.spark.mllib.linalg.DenseVector
 import sqlContext.implicits._
 import org.apache.spark.sql.functions.udf
 
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-// Clase supervisada donde solo entrenamos los datos etiquetado
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+/** Clase supervisada donde solo entrenamos los datos etiquetado */
+
 class Supervised [
   FeatureType,
   E <: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M],
@@ -94,284 +95,241 @@ class Supervised [
 ] (
     val uid: String,
     val baseClassifier: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M],
-  
-    
-  ) extends 
-org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M]
-//org.apache.spark.ml.classification.ClassifierParams[FeatureType, E, M]
+  ) extends org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M]
 with Serializable {
-  var columnNameNewLabels :String ="labelSelection"
+  var columnNameNewLabels: String = "labelSelection"
+  
   //uid
   def this(classifier: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M]) =
     this(Identifiable.randomUID("Supervised"), classifier)
   
-  // set column labels 
-  def setColumnLabelName(nameColumn:String)={
+  ///////////////////////////////////////////////////////////////////////////
+  // setter
+  ///////////////////////////////////////////////////////////////////////////
+  def setColumnLabelName(nameColumn: String) = {
     columnNameNewLabels = nameColumn
     this
   }
   
-  
-  def train(dataset: org.apache.spark.sql.Dataset[_]): M= {
-
-    val dataUnLabeled=dataset.filter(dataset(columnNameNewLabels).isNaN).toDF
+  ///////////////////////////////////////////////////////////////////////////
+  // train
+  ///////////////////////////////////////////////////////////////////////////
+  def train(dataset: org.apache.spark.sql.Dataset[_]): M = {
+    val dataUnLabeled = dataset.filter(dataset(columnNameNewLabels).isNaN).toDF
     val dataLabeled = dataset.toDF.exceptAll(dataUnLabeled)
     baseClassifier.fit(dataLabeled)
-
   }
-  
-  override def copy(extra: org.apache.spark.ml.param.ParamMap):E = defaultCopy(extra)
+  override def copy(extra: org.apache.spark.ml.param.ParamMap): E = defaultCopy(extra)
 }
-
-
-
-
 
 // COMMAND ----------
 
 // DBTITLE 1,Class SemiSupervised- SelfTrainning 
 import org.apache.spark.ml.util.Identifiable
-
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.ml.classification.DecisionTreeClassifier
 import org.apache.spark.mllib.linalg.DenseVector
 import sqlContext.implicits._
 import org.apache.spark.sql.functions.udf
 
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-// Class --> SELF TRAINING 
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+/** Class --> SELF TRAINING */ 
+
 class SelfTraining [
   FeatureType,
   E <: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M],
   M <: org.apache.spark.ml.classification.ProbabilisticClassificationModel[FeatureType, M]
 ] (
     val uid: String,
-    val baseClassifier: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M],
-
-    
+    val baseClassifier: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M],    
   ) extends org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M] with Serializable {
   
-  
-  var porcentajeLabeled:Double = 1.0
-  var threshold:Double=0.7
-  var maxIter:Int=7
-  var criterion:String= "threshold"
-  var kBest:Double=1.0 // percentage
-  var countDataLabeled:Long = _
-  var countDataUnLabeled:Long = _
-  var dataLabeledIni:Long =_
-  var dataUnLabeledIni:Long = _
-  var iter:Int = 0
-  var columnNameNewLabels :String ="labelSelection"
-  var resultsSelfTrainingData: SemiSupervisedDataResults =_
-  var numberOfkBest:Int=0
+  var porcentajeLabeled: Double = 1.0
+  var threshold: Double = 0.7
+  var maxIter: Int = 7
+  var criterion: String = "threshold"
+  var kBest: Double = 1.0 /** percentage*/
+  var countDataLabeled: Long = _
+  var countDataUnLabeled: Long = _
+  var dataLabeledIni: Long = _
+  var dataUnLabeledIni: Long = _
+  var iter: Int = 0
+  var columnNameNewLabels: String = "labelSelection"
+  var resultsSelfTrainingData: SemiSupervisedDataResults = _
+  var numberOfkBest: Int = 0
 
-  //uid
+  //uid 
   def this(classifier: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M]) =
     this(Identifiable.randomUID("selfTrainning"),classifier)
-  
 
-  //SETTERS
-  
+  ///////////////////////////////////////////////////////////////////////////
+  // Setters
+  ///////////////////////////////////////////////////////////////////////////
  
-    //Set columnLabels --> Labeled and Unlabeled
-  def setSemiSupervisedDataResults(semiSupervisedResults:SemiSupervisedDataResults)={
+  //Set columnLabels --> Labeled and Unlabeled
+  def setSemiSupervisedDataResults(semiSupervisedResults: SemiSupervisedDataResults) = {
     resultsSelfTrainingData = semiSupervisedResults
     this
   }
   
-  
-  
-  //Set columnLabels --> Labeled and Unlabeled
-  def setColumnLabelName(nameColumn:String)={
+  // Set columnLabels --> Labeled and Unlabeled
+  def setColumnLabelName(nameColumn: String) = {
     columnNameNewLabels = nameColumn
     this
   }
   
-  
   // set porcentaje
-  def setPorcentaje(porcentaje:Double)={
+  def setPorcentaje(porcentaje: Double) = {
     porcentajeLabeled = porcentaje
     this
-    
   }
   
 
-  def setThreshold(thres:Double)={
+  def setThreshold(thres: Double) = {
     threshold = thres
     this
-    
   }
   
-  // maxIter
-  def setMaxITer(maIter:Int)={
-    maxIter= maIter
+  //maxIter
+  def setMaxITer(maIter: Int) = {
+    maxIter = maIter
     this
-    
   }
   
-  // criterion
-  def setCriterion(cri:String)={
-    criterion= cri
+  //criterion
+  def setCriterion(cri: String) = {
+    criterion = cri
     this
-    
   }
   
   //kBest
-  def setKbest(kb:Double)={
+  def setKbest(kb: Double) = {
     kBest = kb
     this
   }
   
     
-  // getters
+  ///////////////////////////////////////////////////////////////////////////
+  // Getters
+  ///////////////////////////////////////////////////////////////////////////
   
-  def getDataLabeledFinal():Long={
+  def getDataLabeledFinal(): Long = {
     countDataLabeled
   }
   
-  def getUnDataLabeledFinal():Long={
+  def getUnDataLabeledFinal(): Long = {
     countDataUnLabeled
   }  
   
-  def getDataLabeledIni():Long={
+  def getDataLabeledIni(): Long = {
     dataLabeledIni
   }
   
-   def getUnDataLabeledIni():Long={
+   def getUnDataLabeledIni(): Long = {
      dataUnLabeledIni
   }  
   
-  def getIter():Int={
+  def getIter(): Int = {
      iter
   }  
   
 
   
-  def train(dataset: org.apache.spark.sql.Dataset[_]): M= {
+  ///////////////////////////////////////////////////////////////////////////
+  // Train
+  ///////////////////////////////////////////////////////////////////////////
+  
+  def train(dataset: org.apache.spark.sql.Dataset[_]): M = {
     iter = 1
+    
     //udf to get he max value from probabilisti array
     val max = udf((v: org.apache.spark.ml.linalg.Vector) => v.toArray.max)
-    
-    var dataUnLabeled=dataset.filter(dataset(columnNameNewLabels).isNaN).toDF.cache()
+    var dataUnLabeled = dataset.filter(dataset(columnNameNewLabels).isNaN).toDF.cache()
     var dataLabeled = dataset.toDF.exceptAll(dataUnLabeled).cache()
-
+    
     //get the data labeled and unlabeled initial
     dataLabeledIni = dataLabeled.count()
     dataUnLabeledIni = dataUnLabeled.count()
+    
     //selection features and labels
     dataLabeled = dataLabeled.select("features","label")
     dataUnLabeled = dataUnLabeled .select("features","label")
     countDataLabeled = dataLabeled.count()
     countDataUnLabeled = dataUnLabeled.count()
-    
-
-    
     var modeloIterST = baseClassifier.fit(dataLabeled)
     var prediIterST = modeloIterST.transform(dataUnLabeled)
-    
     dataLabeled.unpersist()
     dataUnLabeled.unpersist()
-  
-    if (criterion == "threshold"){
-      
-      while ((iter<maxIter) && (countDataUnLabeled>0)){
-
-        var modificacionPrediccion=prediIterST.withColumn("probMax", max($"probability"))
-        var labelsHigherOfThreshold=modificacionPrediccion.filter(modificacionPrediccion("probMax")>threshold)
-        var labelsLowerOfThreshold =modificacionPrediccion.filter(modificacionPrediccion("probMax")<=threshold)
-
-        // get features and predictions and change the name from prediction to label in order to add as new data labeled
-        var newLabeledFeaturesLabels = labelsHigherOfThreshold.select ("features","prediction").withColumnRenamed("prediction","label")
-        var newUnLabeledFeaturesLabels = labelsLowerOfThreshold.select ("features","prediction").withColumnRenamed("prediction","label")
-
-        dataLabeled = dataLabeled.union(newLabeledFeaturesLabels).cache()
-        dataUnLabeled = newUnLabeledFeaturesLabels.cache()
-        countDataUnLabeled = dataUnLabeled.count()
-        countDataLabeled = dataLabeled.count()
-
-
-        if (countDataUnLabeled>0 && iter<maxIter ){
-          
-          modeloIterST = baseClassifier.fit(dataLabeled)
-          prediIterST = modeloIterST.transform(dataUnLabeled)
-          iter = iter+1
-          
-        }
-        else{ //final
-          modeloIterST = baseClassifier.fit(dataLabeled)
-        }
-
-        dataLabeled.unpersist()
-        dataUnLabeled.unpersist()
-
-      }
     
-    }
-    else if (criterion == "kBest"){
-      
-      numberOfkBest = ((kBest* countDataUnLabeled)/(maxIter-1)).round.toInt
-      
-      while ((iter<maxIter) && (countDataUnLabeled>0)){
-        
-        var modificacionPrediccion=prediIterST.withColumn("probMax", max($"probability"))
-        var newLabeledFeaturesLabelsHigherProb  = modificacionPrediccion.sort(col("probMax").desc).limit(numberOfkBest)
-        var newUnLabeledFeaturesLabels =  modificacionPrediccion.exceptAll(newLabeledFeaturesLabelsHigherProb).select ("features","prediction").withColumnRenamed("prediction","label")
-        var newLabeledFeaturesLabels  = newLabeledFeaturesLabelsHigherProb.select ("features","prediction").withColumnRenamed("prediction","label")        
-        
+    if (criterion == "threshold"){
+      while ((iter < maxIter) && (countDataUnLabeled > 0)){  
+        var modificacionPrediccion = prediIterST.withColumn("probMax", max($"probability"))
+        var labelsHigherOfThreshold = modificacionPrediccion.filter(modificacionPrediccion("probMax")>threshold)
+        var labelsLowerOfThreshold = modificacionPrediccion.filter(modificacionPrediccion("probMax")<=threshold)
+        // get features and predictions and change the name from prediction to label in order to add as new data labeled
+        var newLabeledFeaturesLabels = labelsHigherOfThreshold.select ("features", "prediction").withColumnRenamed("prediction", "label")
+        var newUnLabeledFeaturesLabels = labelsLowerOfThreshold.select ("features", "prediction").withColumnRenamed("prediction", "label")
         dataLabeled = dataLabeled.union(newLabeledFeaturesLabels).cache()
         dataUnLabeled = newUnLabeledFeaturesLabels.cache()
         countDataUnLabeled = dataUnLabeled.count()
         countDataLabeled = dataLabeled.count()
-
-
-        if (countDataUnLabeled>0 && iter<maxIter ){
+        if (countDataUnLabeled > 0 && iter < maxIter ){
+          modeloIterST = baseClassifier.fit(dataLabeled)
+          prediIterST = modeloIterST.transform(dataUnLabeled)
+          iter = iter + 1  
+        }
+        //final
+        else{
+          modeloIterST = baseClassifier.fit(dataLabeled)
+        }
+        dataLabeled.unpersist()
+        dataUnLabeled.unpersist()
+      } 
+    }
+    
+    else if (criterion == "kBest"){
+      numberOfkBest = ((kBest * countDataUnLabeled)/(maxIter-1)).round.toInt
+      
+      while ((iter < maxIter) && (countDataUnLabeled > 0)){
+        var modificacionPrediccion = prediIterST.withColumn("probMax", max($"probability"))
+        var newLabeledFeaturesLabelsHigherProb  = modificacionPrediccion.sort(col("probMax").desc).limit(numberOfkBest)
+        var newUnLabeledFeaturesLabels =  modificacionPrediccion.exceptAll(newLabeledFeaturesLabelsHigherProb).select ("features", "prediction").withColumnRenamed("prediction", "label")
+        var newLabeledFeaturesLabels  = newLabeledFeaturesLabelsHigherProb.select ("features", "prediction").withColumnRenamed("prediction", "label")          
+        dataLabeled = dataLabeled.union(newLabeledFeaturesLabels).cache()
+        dataUnLabeled = newUnLabeledFeaturesLabels.cache()
+        countDataUnLabeled = dataUnLabeled.count()
+        countDataLabeled = dataLabeled.count()
+        if (countDataUnLabeled > 0 && iter < maxIter ){
           modeloIterST = baseClassifier.fit(dataLabeled)
           prediIterST = modeloIterST.transform(dataUnLabeled)
           iter = iter+1
         }
-        else{ //final
+        //final
+        else{ 
           modeloIterST = baseClassifier.fit(dataLabeled)
         }
-
         dataLabeled.unpersist()
         dataUnLabeled.unpersist()
       }
-      
-      
-      
     }
 
     // load the semisupervised results regarding the labeled and unlabeled data using the SemiSupervisedDataResults class
-    resultsSelfTrainingData.dataLabeledFinal =countDataLabeled
-    resultsSelfTrainingData.dataUnDataLabeledFinal =countDataUnLabeled
+    resultsSelfTrainingData.dataLabeledFinal = countDataLabeled
+    resultsSelfTrainingData.dataUnDataLabeledFinal = countDataUnLabeled
     resultsSelfTrainingData.dataLabeledIni =  dataLabeledIni
     resultsSelfTrainingData.dataUnLabeledIni = dataUnLabeledIni
     resultsSelfTrainingData.iteracionSemiSuper = iter
     
     // Final model
     modeloIterST
-
-
-
   }
-  
-  
   override def transformSchema(schema: StructType): StructType = schema
-  
-  override def copy(extra: org.apache.spark.ml.param.ParamMap):E = defaultCopy(extra)
+  override def copy(extra: org.apache.spark.ml.param.ParamMap): E = defaultCopy(extra)
 }
-
-
-
-
 
 // COMMAND ----------
 
 // DBTITLE 1,Class CoTraining SemiSupervised
 import org.apache.spark.ml.util.Identifiable
-
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.ml.classification.DecisionTreeClassifier
 import org.apache.spark.mllib.linalg.DenseVector
@@ -379,9 +337,8 @@ import sqlContext.implicits._
 import org.apache.spark.sql.functions.udf
 import org.apache.spark.sql.functions._
 
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-// Class --> CoTraining
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+/* Class --> CoTraining*/
+
 class CoTraining [
   FeatureType,
   E <: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M],
@@ -389,350 +346,224 @@ class CoTraining [
 ] (
     val uid: String,
     val baseClassifier: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M],
-
-    
   ) extends org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M] with Serializable {
   
-  
-  var porcentajeLabeled:Double = 1.0
-  var threshold:Double=0.7
-  var maxIter:Int=3
-  var criterion:String= "threshold"
-  var kBest:Double=1.0 // percentage
-  var countDataLabeled:Long = _
-  var countDataLabeled_1:Long = _
-  var countDataLabeled_2:Long = _
-  var countDataUnLabeled_1:Long = 1
-  var countDataUnLabeled_2:Long = 1
-  var countDataUnLabeled:Long = _
-  var dataLabeledIni:Long =_
-
-  var dataUnLabeledIni:Long = _
-
-  var dataLabeled:Long = _
-  
-  var iter:Int = 0
-  var columnNameNewLabels :String ="labelSelection"
-  var resultsSelfTrainingData: SemiSupervisedDataResults =_
-  var numberOfkBest:Int=0
-  var modeloIterST: M=_
+  var porcentajeLabeled: Double = 1.0
+  var threshold: Double = 0.7
+  var maxIter: Int = 3
+  var criterion: String = "threshold"
+  var kBest: Double = 1.0 // percentage
+  var countDataLabeled: Long = _
+  var countDataLabeled_1: Long = _
+  var countDataLabeled_2: Long = _
+  var countDataUnLabeled_1: Long = 1
+  var countDataUnLabeled_2: Long = 1
+  var countDataUnLabeled: Long = _
+  var dataLabeledIni: Long =_
+  var dataUnLabeledIni: Long = _
+  var dataLabeled: Long = _
+  var iter: Int = 0
+  var columnNameNewLabels: String = "labelSelection"
+  var resultsSelfTrainingData: SemiSupervisedDataResults = _
+  var numberOfkBest: Int = 0
+  var modeloIterST: M= _
 
   //uid
-  def this(classifier1: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M]/*,
-           classifier2: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M],
-           classifier3: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M]*/) =
-    this(Identifiable.randomUID("CoTrainning"),classifier1/*,classifier2,classifier3*/)
-  
-
-  //SETTERS
-  
+  def this(classifier1: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M]) =
+    this(Identifiable.randomUID("CoTrainning"),classifier1)
+           
+  ///////////////////////////////////////////////////////////////////////////
+  // Setters
+ ///////////////////////////////////////////////////////////////////////////
  
     //Set columnLabels --> Labeled and Unlabeled
-  def setSemiSupervisedDataResults(semiSupervisedResults:SemiSupervisedDataResults)={
+  def setSemiSupervisedDataResults(semiSupervisedResults: SemiSupervisedDataResults) = {
     resultsSelfTrainingData = semiSupervisedResults
     this
   }
-  
-  
-  
+   
   //Set columnLabels --> Labeled and Unlabeled
-  def setColumnLabelName(nameColumn:String)={
+  def setColumnLabelName(nameColumn: String) = {
     columnNameNewLabels = nameColumn
     this
   }
   
-  
   // set porcentaje
-  def setPorcentaje(porcentaje:Double)={
+  def setPorcentaje(porcentaje: Double) = {
     porcentajeLabeled = porcentaje
-    this
-    
+    this  
   }
   
-
-  def setThreshold(thres:Double)={
+  def setThreshold(thres: Double) = {
     threshold = thres
     this
-    
   }
   
   // maxIter
-  def setMaxITer(maIter:Int)={
-    maxIter= maIter
-    this
-    
+  def setMaxITer(maIter: Int) = {
+    maxIter = maIter
+    this   
   }
   
   // criterion
-  def setCriterion(cri:String)={
-    criterion= cri
+  def setCriterion(cri: String) = {
+    criterion = cri
     this
-    
   }
   
   //kBest
-  def setKbest(kb:Double)={
+  def setKbest(kb: Double) = {
     kBest = kb
     this
   }
   
-    
-  // getters
-  
-  def getDataLabeledFinal():Long={
+  ///////////////////////////////////////////////////////////////////////////
+  // Getters
+  ///////////////////////////////////////////////////////////////////////////
+           
+  def getDataLabeledFinal(): Long = {
     countDataLabeled
   }
   
-  def getUnDataLabeledFinal():Long={
+  def getUnDataLabeledFinal(): Long = {
     countDataUnLabeled
   }  
   
-  def getDataLabeledIni():Long={
+  def getDataLabeledIni(): Long = {
     dataLabeledIni
   }
   
-   def getUnDataLabeledIni():Long={
+   def getUnDataLabeledIni(): Long = {
      dataUnLabeledIni
   }  
   
-  def getIter():Int={
+  def getIter(): Int = {
      iter
   }  
   
 
+  ///////////////////////////////////////////////////////////////////////////
+  // Train
+  ///////////////////////////////////////////////////////////////////////////
   
-  def train(dataset: org.apache.spark.sql.Dataset[_]): M= {
+  def train(dataset: org.apache.spark.sql.Dataset[_]): M = {
     iter = 1
+    
     //udf to get he max value from probabilisti array
     val max = udf((v: org.apache.spark.ml.linalg.Vector) => v.toArray.max)
-    
-    //var dataUnLabeled=dataset.filter(dataset(columnNameNewLabels).isNaN).toDF.cache()
-    //var dataLabeled = dataset.toDF.except(dataUnLabeled).cache()
-    //println ("dataset: " + dataset.count)
-    var dataUnLabeled=dataset.filter(dataset(columnNameNewLabels).isNaN).toDF.cache()
+    var dataUnLabeled = dataset.filter(dataset(columnNameNewLabels).isNaN).toDF.cache()
     var dataLabeled = dataset.toDF.exceptAll(dataUnLabeled).cache()
-
+    
     //get the data labeled and unlabeled initial
     dataLabeledIni = dataLabeled.count()
     dataUnLabeledIni = dataUnLabeled.count()
     
     //split data in two datasets.
-    
-    val dataSplitsLabel=  dataLabeled.randomSplit(Array(0.5, 0.5),seed = 8L)
+    val dataSplitsLabel =  dataLabeled.randomSplit(Array(0.5, 0.5),seed = 8L)
     var dataLabeled_1 = dataSplitsLabel(0)
     var dataLabeled_2 = dataSplitsLabel(1)
-    
-    val dataSplitsUnLabel=  dataUnLabeled.randomSplit(Array(0.5, 0.5),seed = 8L)
+    val dataSplitsUnLabel =  dataUnLabeled.randomSplit(Array(0.5, 0.5),seed = 8L)
     var dataUnLabeled_1 = dataSplitsUnLabel(0)
     var dataUnLabeled_2 = dataSplitsUnLabel(1)
-
     
     //selection features and labels
-    dataUnLabeled = dataUnLabeled .select("features","label")
-    dataUnLabeled_1 = dataUnLabeled_1 .select("features","label").cache()
-    dataUnLabeled_2 = dataUnLabeled_2 .select("features","label").cache()
-    dataLabeled_1 = dataLabeled_1.select("features","label").cache()
-    dataLabeled_2 = dataLabeled_2.select("features","label").cache()
-
+    dataUnLabeled = dataUnLabeled .select("features", "label")
+    dataUnLabeled_1 = dataUnLabeled_1 .select("features", "label").cache()
+    dataUnLabeled_2 = dataUnLabeled_2 .select("features", "label").cache()
+    dataLabeled_1 = dataLabeled_1.select("features", "label").cache()
+    dataLabeled_2 = dataLabeled_2.select("features", "label").cache()
     countDataLabeled_1 = dataLabeled_1.count()
     countDataLabeled_2 = dataLabeled_2.count()
-    countDataUnLabeled = dataUnLabeled.count()
-    
-    /*println("+++++++++++++++++++++++++++++++++++++++++++")
-    println("Initial data")
-    println("+++++++++++++++++++++++++++++++++++++++++++")
-    println ("countDataLabeled_1: "+countDataLabeled_1)
-    println ("countDataLabeled_2: "+countDataLabeled_2)
-    println ("countDataUnLabeled: "+countDataUnLabeled)*/
-    
-    
+    countDataUnLabeled = dataUnLabeled.count()    
     var modeloIterST_1 = baseClassifier.fit(dataLabeled_1)
     var prediIterST_1 = modeloIterST_1.transform(dataUnLabeled_1)
-    
     var modeloIterST_2 = baseClassifier.fit(dataLabeled_2)
     var prediIterST_2 = modeloIterST_2.transform(dataUnLabeled_2)
     
- /*   dataLabeled.unpersist()
-    dataUnLabeled.unpersist()
-    dataLabeled_1.unpersist()
-    dataLabeled_2.unpersist()*/
-  
-    if (criterion == "threshold"){
-      
-      while ((iter<maxIter) && (countDataUnLabeled_1>0) &&(countDataUnLabeled_2>0)){
+    if (criterion == "threshold"){  
+      while ((iter<maxIter) && (countDataUnLabeled_1 > 0) &&(countDataUnLabeled_2 > 0)){
         
         // model 1
-        var modificacionPrediccion_1=prediIterST_1.withColumn("probMax", max($"probability"))
-        var labelsHigherOfThreshold_1=modificacionPrediccion_1.filter(modificacionPrediccion_1("probMax")>threshold)
-        //var labelsLowerOfThreshold_1 =modificacionPrediccion_1.filter(modificacionPrediccion_1("probMax")<=threshold)
-        dataUnLabeled_1 =modificacionPrediccion_1.filter(modificacionPrediccion_1("probMax")<=threshold).select ("features","prediction").withColumnRenamed("prediction","label")
-        var newLabeledFeaturesLabels_1 = labelsHigherOfThreshold_1.select ("features","prediction").withColumnRenamed("prediction","label")
-        //var newUnLabeledFeaturesLabels_1 = labelsLowerOfThreshold_1.select ("features","prediction").withColumnRenamed("prediction","label")
-        
-        //model 2
-        var modificacionPrediccion_2=prediIterST_2.withColumn("probMax", max($"probability"))
-        var labelsHigherOfThreshold_2=modificacionPrediccion_2.filter(modificacionPrediccion_2("probMax")>threshold)
-       // var labelsLowerOfThreshold_2 =modificacionPrediccion_2.filter(modificacionPrediccion_2("probMax")<=threshold)
-        dataUnLabeled_2 =modificacionPrediccion_2.filter(modificacionPrediccion_2("probMax")<=threshold).select ("features","prediction").withColumnRenamed("prediction","label")
-        var newLabeledFeaturesLabels_2 = labelsHigherOfThreshold_2.select ("features","prediction").withColumnRenamed("prediction","label")
-        //var newUnLabeledFeaturesLabels_2 = labelsLowerOfThreshold_2.select ("features","prediction").withColumnRenamed("prediction","label")
-        
-        // new Unlabeled data coming from newUnlabeleded_1 and newUnlabeled_2
-        //var newUnLabeledFeaturesLabels = dataUnLabeled.exceptAll(ewUnLabeledFeaturesLabels_1).exceptAll(newUnLabeledFeaturesLabels_2)//newUnLabeledFeaturesLabels_2.union(newUnLabeledFeaturesLabels_1)
-        
-       
-        //println("newLabeledFeaturesLabels_1: "+newLabeledFeaturesLabels_1.count)
-        //println("newLabeledFeaturesLabels_2: "+newLabeledFeaturesLabels_2.count)
-        
-        dataLabeled_1 = dataLabeled_1.unionAll(newLabeledFeaturesLabels_2)//.cache()
-        dataLabeled_2 = dataLabeled_2.unionAll(newLabeledFeaturesLabels_1)//.cache()
-        //dataUnLabeled = dataUnLabeled.except(newLabeledFeaturesLabels_1).except(newLabeledFeaturesLabels_2)//newUnLabeledFeaturesLabels.cache()
-        
+        var modificacionPrediccion_1 = prediIterST_1.withColumn("probMax", max($"probability"))
+        var labelsHigherOfThreshold_1 = modificacionPrediccion_1.filter(modificacionPrediccion_1("probMax") > threshold)
+        dataUnLabeled_1 = modificacionPrediccion_1.filter(modificacionPrediccion_1("probMax") <= threshold).select ("features", "prediction").withColumnRenamed("prediction", "label")
+        var newLabeledFeaturesLabels_1 = labelsHigherOfThreshold_1.select ("features", "prediction").withColumnRenamed("prediction", "label")
 
+        //model 2
+        var modificacionPrediccion_2 = prediIterST_2.withColumn("probMax", max($"probability"))
+        var labelsHigherOfThreshold_2 = modificacionPrediccion_2.filter(modificacionPrediccion_2("probMax")>threshold)
+        dataUnLabeled_2 = modificacionPrediccion_2.filter(modificacionPrediccion_2("probMax") <= threshold).select ("features", "prediction").withColumnRenamed("prediction", "label")
+        var newLabeledFeaturesLabels_2 = labelsHigherOfThreshold_2.select ("features", "prediction").withColumnRenamed("prediction", "label")
+        dataLabeled_1 = dataLabeled_1.unionAll(newLabeledFeaturesLabels_2)
+        dataLabeled_2 = dataLabeled_2.unionAll(newLabeledFeaturesLabels_1)
+        
+        //count dataLabeled and Unlabeled in each iteration
         countDataUnLabeled_1 = dataUnLabeled_1.count()
         countDataUnLabeled_2 = dataUnLabeled_2.count()
         countDataLabeled_1 = dataLabeled_1.count()
         countDataLabeled_2 = dataLabeled_2.count()
 
-        if ((countDataUnLabeled_1>0)&& (countDataUnLabeled_2>0) && (iter<maxIter) ){
-          
-         /* println("+++++++++++++++++++++++++++++++++++++++++++")
-          println("iter: "+iter)
-          println("+++++++++++++++++++++++++++++++++++++++++++")
-          println ("countDataLabeled_1: "+countDataLabeled_1)
-          println ("countDataLabeled_2: "+countDataLabeled_2)
-          println ("countDataUnLabeled_1: "+countDataUnLabeled_1)
-          println ("countDataUnLabeled_2: "+countDataUnLabeled_2)*/
-          
+        if ((countDataUnLabeled_1 > 0) && (countDataUnLabeled_2 > 0) && (iter < maxIter) ){          
           modeloIterST_1 = baseClassifier.fit(dataLabeled_1)
           prediIterST_1 = modeloIterST_1.transform(dataUnLabeled_1)
-
           modeloIterST_2 = baseClassifier.fit(dataLabeled_2)
           prediIterST_2 = modeloIterST_2.transform(dataUnLabeled_2)
-
-          iter = iter+1
-        }
-        /*else {
-        
-          println("+++++++++++++++++++++++++++++++++++++++++++")
-          println("No new model - iter: "+iter)
-          println("+++++++++++++++++++++++++++++++++++++++++++")
-          println ("countDataLabeled_1: "+countDataLabeled_1)
-          println ("countDataLabeled_2: "+countDataLabeled_2)
-          println ("countDataUnLabeled_1: "+countDataUnLabeled_1)
-          println ("countDataUnLabeled_2: "+countDataUnLabeled_2)
-        }*/
-
-        /*dataLabeled_1.unpersist()
-        dataLabeled_2.unpersist()
-        dataUnLabeled_1.unpersist()
-        dataUnLabeled_2.unpersist()
-        dataUnLabeled.unpersist()
-        //dataLabeled_1.persist() */
-        
+          iter = iter + 1
+        }        
       }
-    // final model
-    //ini 
-
-    //countDataUnLabeled_1 = 1
-    //countDataUnLabeled_2 = 1
-
+      
     //unpersist
     dataLabeled_1.unpersist()
     dataLabeled_2.unpersist()
     dataUnLabeled_1.unpersist()
     dataUnLabeled_2.unpersist()
     dataUnLabeled.unpersist()
-      //dataLabeled_1.persist()
-
     }
+    
     else if (criterion == "kBest"){
-      
-      numberOfkBest = ((kBest* countDataUnLabeled)/(maxIter-1)).round.toInt
-      
-       while ((iter<maxIter) && (countDataUnLabeled_1>0) &&(countDataUnLabeled_2>0)){
+      numberOfkBest = ((kBest * countDataUnLabeled) / (maxIter - 1)).round.toInt
+       while ((iter < maxIter) && (countDataUnLabeled_1 > 0) &&(countDataUnLabeled_2 > 0)){
         
         // model 1
-        
-        var modificacionPrediccion_1=prediIterST_1.withColumn("probMax", max($"probability"))
+        var modificacionPrediccion_1 = prediIterST_1.withColumn("probMax", max($"probability"))
         var newLabeledFeaturesLabelsHigherProb_1  = modificacionPrediccion_1.sort(col("probMax").desc).limit(numberOfkBest)
-        var newUnLabeledFeaturesLabels_1 =  modificacionPrediccion_1.exceptAll(newLabeledFeaturesLabelsHigherProb_1).select ("features","prediction").withColumnRenamed("prediction","label")
-        var newLabeledFeaturesLabels_1  = newLabeledFeaturesLabelsHigherProb_1.select ("features","prediction").withColumnRenamed("prediction","label")  
-        var dataUnLabeled_1 = newUnLabeledFeaturesLabels_1//.cache()
+        var newUnLabeledFeaturesLabels_1 =  modificacionPrediccion_1.exceptAll(newLabeledFeaturesLabelsHigherProb_1).select ("features", "prediction").withColumnRenamed("prediction", "label")
+        var newLabeledFeaturesLabels_1  = newLabeledFeaturesLabelsHigherProb_1.select ("features", "prediction").withColumnRenamed("prediction", "label")  
+        var dataUnLabeled_1 = newUnLabeledFeaturesLabels_1
         
         // model 2
-        
-        var modificacionPrediccion_2=prediIterST_2.withColumn("probMax", max($"probability"))
+        var modificacionPrediccion_2 = prediIterST_2.withColumn("probMax", max($"probability"))
         var newLabeledFeaturesLabelsHigherProb_2  = modificacionPrediccion_2.sort(col("probMax").desc).limit(numberOfkBest)
-        var newUnLabeledFeaturesLabels_2 =  modificacionPrediccion_2.exceptAll(newLabeledFeaturesLabelsHigherProb_2).select ("features","prediction").withColumnRenamed("prediction","label")
-        var newLabeledFeaturesLabels_2  = newLabeledFeaturesLabelsHigherProb_2.select ("features","prediction").withColumnRenamed("prediction","label")        
-        var dataUnLabeled_2 = newUnLabeledFeaturesLabels_2//.cache()
-        
-        // new Unlabeled data coming from newUnlabeleded_1 and newUnlabeled_2
-        //var newUnLabeledFeaturesLabels = newUnLabeledFeaturesLabels_2.union(newUnLabeledFeaturesLabels_1)
-
-        
-         
-        dataLabeled_1 = dataLabeled_1.unionAll(newLabeledFeaturesLabels_2)//.cache()
-        dataLabeled_2 = dataLabeled_2.unionAll(newLabeledFeaturesLabels_1)//.cache()
-        
+        var newUnLabeledFeaturesLabels_2 =  modificacionPrediccion_2.exceptAll(newLabeledFeaturesLabelsHigherProb_2).select ("features", "prediction").withColumnRenamed("prediction", "label")
+        var newLabeledFeaturesLabels_2  = newLabeledFeaturesLabelsHigherProb_2.select ("features", "prediction").withColumnRenamed("prediction", "label")        
+        var dataUnLabeled_2 = newUnLabeledFeaturesLabels_2
+        dataLabeled_1 = dataLabeled_1.unionAll(newLabeledFeaturesLabels_2)
+        dataLabeled_2 = dataLabeled_2.unionAll(newLabeledFeaturesLabels_1)
         countDataUnLabeled_1 = dataUnLabeled_1.count()
         countDataUnLabeled_2 = dataUnLabeled_2.count()
         countDataLabeled_1 = dataLabeled_1.count()
         countDataLabeled_2 = dataLabeled_2.count()
 
-        if ((countDataUnLabeled_1>0)&& (countDataUnLabeled_2>0) && (iter<maxIter) ){
-          
-          println("+++++++++++++++++++++++++++++++++++++++++++")
-          println("iter: "+iter)
-          println("+++++++++++++++++++++++++++++++++++++++++++")
-          println ("countDataLabeled_1: "+countDataLabeled_1)
-          println ("countDataLabeled_2: "+countDataLabeled_2)
-          println ("countDataUnLabeled_1: "+countDataUnLabeled_1)
-          println ("countDataUnLabeled_2: "+countDataUnLabeled_2)
-          
+        if ((countDataUnLabeled_1 > 0) && (countDataUnLabeled_2 > 0) && (iter < maxIter) ){
           modeloIterST_1 = baseClassifier.fit(dataLabeled_1)
           prediIterST_1 = modeloIterST_1.transform(dataUnLabeled_1)
-
           modeloIterST_2 = baseClassifier.fit(dataLabeled_2)
           prediIterST_2 = modeloIterST_2.transform(dataUnLabeled_2)
-
-          iter = iter+1
-        }
-        else {
-        
-          println("+++++++++++++++++++++++++++++++++++++++++++")
-          println("No new model - iter: "+iter)
-          println("+++++++++++++++++++++++++++++++++++++++++++")
-          println ("countDataLabeled_1: "+countDataLabeled_1)
-          println ("countDataLabeled_2: "+countDataLabeled_2)
-          println ("countDataUnLabeled_1: "+countDataUnLabeled_1)
-          println ("countDataUnLabeled_2: "+countDataUnLabeled_2)
-        }
-
-        /*dataUnLabeled.unpersist()
-        dataLabeled_1.unpersist()
-        dataLabeled_2.unpersist()
-        dataUnLabeled_1.unpersist()
-        dataUnLabeled_2.unpersist() */
-
-        
+          iter = iter + 1
+        }        
       }
-      // final model
-
-
+      
       //unpersist
       dataLabeled_1.unpersist()
       dataLabeled_2.unpersist()
       dataUnLabeled_1.unpersist()
       dataUnLabeled_2.unpersist()
       dataUnLabeled.unpersist()
-       
     }
-
+    
     // load the semisupervised results regarding the labeled and unlabeled data using the SemiSupervisedDataResults class
-    resultsSelfTrainingData.dataLabeledFinal =countDataLabeled_1 + countDataLabeled_2
-    resultsSelfTrainingData.dataUnDataLabeledFinal =countDataUnLabeled_1 + countDataUnLabeled_2
+    resultsSelfTrainingData.dataLabeledFinal = countDataLabeled_1 + countDataLabeled_2
+    resultsSelfTrainingData.dataUnDataLabeledFinal = countDataUnLabeled_1 + countDataUnLabeled_2
     resultsSelfTrainingData.dataLabeledIni =  dataLabeledIni
     resultsSelfTrainingData.dataUnLabeledIni = dataUnLabeledIni
     resultsSelfTrainingData.iteracionSemiSuper = iter
@@ -744,24 +575,13 @@ class CoTraining [
     // Final model
     baseClassifier.fit(dataLabeled_1.unionAll(dataLabeled_2))
 
-
-
   }
-  
-  
-
   override def transformSchema(schema: StructType): StructType = schema
-  
-  override def copy(extra: org.apache.spark.ml.param.ParamMap):E = defaultCopy(extra)
+  override def copy(extra: org.apache.spark.ml.param.ParamMap): E = defaultCopy(extra)
 }
-
-
-
-
 
 // COMMAND ----------
 
-// DBTITLE 1,Functions Super/SemiSupervised
 import org.apache.spark.sql.types.{StructType,StructField,StringType,DoubleType}
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.DataFrame
@@ -784,7 +604,7 @@ import org.apache.spark.ml.PipelineStage
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.mllib.evaluation.MulticlassMetrics
 
-object functionsSemiSupervised {
+object functionsSemiSupervised extends Serializable  {
   //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
   //creation PipelineStatge to convert features from categorical to continuos
   //output array[PipelineStage]
@@ -1097,6 +917,331 @@ object functionsSemiSupervised {
 
 // COMMAND ----------
 
+// DBTITLE 1,Functions Super/SemiSupervised
+import org.apache.spark.sql.types.{StructType,StructField,StringType,DoubleType}
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.ml.feature.StringIndexer
+import org.apache.spark.ml.feature.StringIndexerModel
+import org.apache.spark.ml.feature.VectorAssembler
+import org.apache.spark.ml.classification.DecisionTreeClassifier
+import org.apache.spark.mllib.evaluation.MulticlassMetrics
+import org.apache.spark.ml.{Pipeline, PipelineModel}
+import org.apache.spark.sql.functions.col
+import spark.implicits._
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.PipelineStage
+import scala.util.control.Breaks._
+import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
+import org.apache.spark.mllib.evaluation.MulticlassMetrics
+import org.apache.spark.mllib.util.MLUtils.kFold
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.PipelineStage
+import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
+import org.apache.spark.mllib.evaluation.MulticlassMetrics
+
+object functionsSemiSupervised {
+  
+  /**
+  *creation PipelineStatge to convert features from categorical to continuos
+  *output array[PipelineStage]
+  */
+  
+  def indexStringColumnsStagePipeline(df: DataFrame, cols: Array[String]): (Pipeline, Array[String]) = {
+    var intermedioStages: Array[(PipelineStage)] = new Array[(PipelineStage)](cols.size)
+    var posicion = 0
+    for(col <-cols) {
+      val si = new StringIndexer().setInputCol(col).setOutputCol(col+"-num")
+      intermedioStages(posicion) = si.setHandleInvalid("keep")
+      posicion = posicion + 1
+    }
+    val output = new Pipeline().setStages(intermedioStages)
+    (output,df.columns.diff(cols))
+  }
+
+  /**
+  * pipelines SelfTraining Creation
+  *percentatge, threshold, Classifier, pipeline, i.e: (0.01,0.4,ST-DT,pipeline_87c711c3e400)
+  *                                                    (0.01,0.4,ST-LB,pipeline_87c711c3e400)
+  *                                                    ...
+  */
+  
+  def pipelineModelsSelfTraining [
+      FeatureType,
+      E <: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M],
+      M <: org.apache.spark.ml.classification.ProbabilisticClassificationModel[FeatureType, M]
+    ] (threshold: Array[Double],
+       kBest: Array[Double],
+       percentage: Array[Double],
+       resultsSemiSupData: SemiSupervisedDataResults,
+       arrayClasiInstanceModel: Array[(String, org.apache.spark.ml.PipelineStage)],
+       criterion: Array[String],
+       iterations: Int = 7): Array[(String, Array[(Double, Array[(Double, Array[(String, org.apache.spark.ml.Pipeline)])])])]= 
+  {
+      criterion.map(crit =>(crit, percentage.map(per =>(per, 
+                                                     if (crit == "threshold")
+                                                     {
+                                                       threshold.map(th => (th, arrayClasiInstanceModel.map(clasi => (clasi._1, new Pipeline().setStages(Array(new SelfTraining(clasi._2.asInstanceOf[E])
+                                                                                                                                      .setThreshold(th)
+                                                                                                                                      .setCriterion(crit)
+                                                                                                                                      .setMaxITer(iterations)
+                                                                                                                                      .setSemiSupervisedDataResults(resultsSemiSupData)))))))
+                                                     }
+                                                     
+                                                     // kBest
+                                                     else 
+                                                     {
+                                                       kBest.map(kb => (kb, arrayClasiInstanceModel.map(clasi => (clasi._1, new Pipeline().setStages(Array(new SelfTraining(clasi._2.asInstanceOf[E])
+                                                                                                                                      .setKbest(kb)
+                                                                                                                                      .setCriterion(crit)
+                                                                                                                                      .setMaxITer(iterations)
+                                                                                                                                      .setSemiSupervisedDataResults(resultsSemiSupData)))))))
+                                                     }
+                                                    ))))
+
+  }
+
+
+  def pipelineModelsCoTraining [
+      FeatureType,
+      E <: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M],
+      M <: org.apache.spark.ml.classification.ProbabilisticClassificationModel[FeatureType, M]
+    ] (threshold: Array[Double],
+       kBest: Array[Double],
+       percentage: Array[Double],
+       resultsSemiSupData: SemiSupervisedDataResults,
+       arrayClasiInstanceModel: Array[(String, org.apache.spark.ml.PipelineStage)],
+       criterion: Array[String],
+       iterations: Int = 7): Array[(String, Array[(Double, Array[(Double, Array[(String, org.apache.spark.ml.Pipeline)])])])]= 
+  {
+      criterion.map(crit => (crit, percentage.map(per => (per, 
+                                                     if (crit == "threshold")
+                                                     {
+                                                       threshold.map(th => (th, arrayClasiInstanceModel.map(clasi => (clasi._1, new Pipeline()
+                                                                                                                 .setStages(Array(new CoTraining(clasi._2.asInstanceOf[E])
+                                                                                                                                      .setThreshold(th)
+                                                                                                                                      .setCriterion(crit)
+                                                                                                                                      .setMaxITer(iterations)
+                                                                                                                                      .setSemiSupervisedDataResults(resultsSemiSupData)))))))
+                                                     }
+                                                     
+                                                     // kBest
+                                                     else 
+                                                     {
+                                                       kBest.map( kb =>(kb, arrayClasiInstanceModel.map(clasi => (clasi._1, new Pipeline()
+                                                                                                             .setStages(Array(new CoTraining(clasi._2.asInstanceOf[E])
+                                                                                                                                      .setKbest(kb)
+                                                                                                                                      .setCriterion(crit)
+                                                                                                                                      .setMaxITer(iterations)
+                                                                                                                                      .setSemiSupervisedDataResults(resultsSemiSupData)))))))
+                                                     }
+                                                    ))))
+
+  }
+
+
+
+  /**
+  *restults DataFrame template
+  * Structure:
+  * |data| clasifi| porcentaje| threshold| iter| LabeledInicial| UnlabeledInicial| LabeledFinal| UnlabeledFinal| porEtiFinal| Acc| AUC| PR| F1Score|
+  * +----+--------+----------+-----------+-----+---------------+-----------------+-------------+---------------+------------+----+----+----+-------+
+  * | BCW|   ST-DT|      0.001|       0.6|    2|            130|           100600|        98000|           2600|       97.4 | x.x| x.x| x.x|    x.x|
+  * | BCW|   ST-DT|      0.005|       0.6|    3|            270|           100460|        96000|           2800|       97.21| x.x| x.x| x.x|    x.x|
+  * .... 
+  */
+  def generadorDataFrameResultadosSemiSuper(data:String,
+                                            classifiers: Array[String],
+                                            percentage: Array[Double],
+                                            threshold: Array[Double]=Array(0.0),
+                                            kBest: Array[Double] = Array(0.0),
+                                            criterion: Array[String] = Array("n.a"),
+                                           ):DataFrame = 
+  {
+    var seqValores = Seq[(String,String,String,Double, Double,Int,Int,Long,Long,Long,Double,Double, Double,Double, Double)]() 
+    var posicion = 0
+    var thresholdOrKbest:Array[Double] = Array(0.0)
+    for (crit <- criterion){
+      if (crit == "kBest"){
+        thresholdOrKbest = kBest
+      }
+      else if (crit == "threshold"){
+        thresholdOrKbest =threshold
+      }
+      for(posClasi <- classifiers) {
+        for(posPorce <- percentage){
+          for (posThreshold <- thresholdOrKbest){
+            seqValores = seqValores :+ (data, posClasi, crit, posPorce, posThreshold, 0, 0, 0.toLong, 0.toLong, 0.toLong, 0.00, 0.00, 0.00, 0.00, 0.00)
+          }
+        }
+      }
+    }
+    // DataFrame creation
+    spark.createDataFrame(seqValores).toDF("data",
+                                           "classifier",
+                                           "criterion",
+                                           "percentageLabeled",
+                                           "thresholdOrKBest",
+                                           "iteration",
+                                           "LabeledInitial",
+                                           "UnLabeledInitial",
+                                           "LabeledFinal",
+                                           "UnLabeledFinal",
+                                           "percentageLabeledFinal",
+                                           "accuracy",
+                                           "AUC",
+                                           "PR",
+                                           "F1score")
+  }
+
+  /**
+  * results calculation
+  */
+  def SupervisedAndSemiSupervisedResuts  (featurization:Pipeline,
+       kfold: Int,
+       data: DataFrame,
+       modelsPipeline: Array[(String, Array[(Double, Array[(Double, Array[(String, org.apache.spark.ml.Pipeline)])])])],
+       info: DataFrame,
+       resultSemiSupervisedData: SemiSupervisedDataResults = new SemiSupervisedDataResults()): DataFrame = 
+  {
+    var newdf = info
+    var unlabeledProcess = new UnlabeledTransformer()
+    var pipeline:Pipeline = new Pipeline()
+    var results:(Double, Double, Double, Double, Long, Long, Long, Long, Int) = (0.0, 0.0, 0.0, 0.0, 0.toLong, 0.toLong, 0.toLong, 0.toLong, 0)
+    modelsPipeline.map(criterion => criterion._2.map(percentatge => percentatge._2.map(threshold => threshold._2.map(classi => (pipeline = new Pipeline().setStages(Array(featurization,
+                                                                                                                                      unlabeledProcess.setPercentage(percentatge._1),
+                                                                                                                                      classi._2)),
+                                                                                            results = crossValidation(data,kfold,pipeline,resultSemiSupervisedData),
+                                                                                            newdf = newdf.withColumn("accuracy", when(newdf("percentageLabeled") === percentatge._1 &&
+                                                                                                                                    newdf("criterion") === criterion._1 &&
+                                                                                                                                    newdf("classifier") === classi._1&&
+                                                                                                                                    newdf("thresholdOrKBest") === threshold._1
+                                                                                                                                    ,results._1).otherwise (newdf("accuracy"))),
+                                                                                            newdf = newdf.withColumn("AUC", when(newdf("percentageLabeled") === percentatge._1 &&
+                                                                                                                                newdf("criterion") === criterion._1 &&
+                                                                                                                                newdf("classifier") === classi._1 &&
+                                                                                                                                newdf("thresholdOrKBest") === threshold._1
+                                                                                                                                ,results._2).otherwise (newdf("AUC"))),
+                                                                                            newdf = newdf.withColumn("PR", when(newdf("percentageLabeled") === percentatge._1 &&
+                                                                                                                               newdf("criterion") === criterion._1 &&
+                                                                                                                                newdf("classifier") === classi._1 && 
+                                                                                                                                newdf("thresholdOrKBest") === threshold._1
+                                                                                                                                , results._3).otherwise (newdf("PR"))),
+                                                                                            newdf = newdf.withColumn("F1score", when(newdf("percentageLabeled") === percentatge._1 &&
+                                                                                                                                    newdf("criterion") === criterion._1 &&
+                                                                                                                                    newdf("classifier") === classi._1 &&
+                                                                                                                                    newdf("thresholdOrKBest") === threshold._1
+                                                                                                                                    ,results._4).otherwise (newdf("F1score"))),
+                                                                                            newdf = newdf.withColumn("iteration", when(newdf("percentageLabeled") === percentatge._1 && 
+                                                                                                                                      newdf("criterion") === criterion._1 &&
+                                                                                                                                      newdf("classifier") === classi._1  &&
+                                                                                                                                      newdf("thresholdOrKBest") === threshold._1
+                                                                                                                                      ,results._9).otherwise (newdf("iteration"))),
+                                                                                            newdf = newdf.withColumn("LabeledInitial", when(newdf("percentageLabeled")=== percentatge._1  && 
+                                                                                                                                           newdf("criterion") === criterion._1 &&
+                                                                                                                                           newdf("classifier") === classi._1 &&  
+                                                                                                                                           newdf("thresholdOrKBest") === threshold._1 
+                                                                                                                                           ,results._5 ).otherwise (newdf("LabeledInitial"))),
+                                                                                            newdf = newdf.withColumn("UnLabeledInitial", when(newdf("percentageLabeled") === percentatge._1  &&
+                                                                                                                                             newdf("criterion") === criterion._1 &&
+                                                                                                                                             newdf("classifier") === classi._1 && 
+                                                                                                                                             newdf("thresholdOrKBest") === threshold._1 
+                                                                                                                                             ,results._6).otherwise (newdf("UnLabeledInitial"))),
+                                                                                            newdf = newdf.withColumn("LabeledFinal", when(newdf("percentageLabeled") === percentatge._1  && 
+                                                                                                                                         newdf("criterion") === criterion._1 &&
+                                                                                                                                         newdf("classifier") === classi._1 && 
+                                                                                                                                         newdf("thresholdOrKBest") === threshold._1 
+                                                                                                                                         ,results._7).otherwise (newdf("LabeledFinal"))),
+                                                                                            newdf = newdf.withColumn("UnLabeledFinal", when(newdf("percentageLabeled") === percentatge._1 &&
+                                                                                                                                           newdf("criterion") === criterion._1 &&
+                                                                                                                                           newdf("classifier") === classi._1 && 
+                                                                                                                                           newdf("thresholdOrKBest") === threshold._1 
+                                                                                                                                           , results._8).otherwise(newdf("UnLabeledFinal"))),
+                                                                                            newdf = newdf.withColumn("percentageLabeledFinal", when(newdf("percentageLabeled") === percentatge._1 && 
+                                                                                                                                        newdf("criterion") === criterion._1 &&
+                                                                                                                                        newdf("classifier")===classi._1 && 
+                                                                                                                                        newdf("thresholdOrKBest")=== threshold._1
+                                                                                                                                        ,(1 - (results._8.toDouble/results._6.toDouble)))
+                                                                                                                     .otherwise (newdf("percentageLabeledFinal"))) 
+
+                                                                                           )))))
+     newdf
+  }
+  
+  
+   /**
+   *Cross Validator
+  */
+  def crossValidation[
+      FeatureType,
+      E <: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M],
+      M <: org.apache.spark.ml.classification.ProbabilisticClassificationModel[FeatureType, M]
+    ](data: DataFrame,
+      kFolds: Int,
+      modelsPipeline: Pipeline,
+      resultsSSData: SemiSupervisedDataResults = new SemiSupervisedDataResults()): (Double, Double, Double, Double, Long, Long, Long, Long, Int)= {
+    
+    // creamos la array de salida con el type y el tamaño
+    var folds = kFold(data.rdd, kFolds, 8L)
+    var acierto: Double = 0.0
+    var auROC: Double = 0.0
+    var auPR: Double = 0.0
+    var f1Score: Double = 0.0
+    var labeledIni: Int = 0
+    var dataLabeledFinal: Long =0
+    var dataUnDataLabeledFinal: Long =0
+    var dataLabeledIni: Long =0
+    var dataUnLabeledIni: Long =0
+    var iteracionSemiSuper: Int =0
+    
+    for(iteration <- 0 to kFolds-1) {
+       var dataTraining=spark.createDataFrame(folds(iteration)._1, data.schema)
+       var dataTest=spark.createDataFrame(folds(iteration)._2, data.schema)
+       dataTraining.persist()
+       dataTest.persist()
+       var predictionsAndLabelsRDD = modelsPipeline.fit(dataTraining)
+        .transform(dataTest)
+        .select("prediction", "label").rdd.map(row => (row.getDouble(0), row.getDouble(1)))
+      
+      //persistents
+      dataTraining.unpersist() 
+      dataTest.unpersist()
+      var metrics= new MulticlassMetrics(predictionsAndLabelsRDD)
+      var metrics2 = new BinaryClassificationMetrics(predictionsAndLabelsRDD)
+      
+      // total label and unlabeled data from the begining until the end.
+      dataLabeledFinal = resultsSSData.dataLabeledFinal + dataLabeledFinal
+      dataUnDataLabeledFinal = resultsSSData.dataUnDataLabeledFinal + dataUnDataLabeledFinal
+      dataLabeledIni = resultsSSData.dataLabeledIni + dataLabeledIni
+      dataUnLabeledIni =resultsSSData.dataUnLabeledIni + dataUnLabeledIni
+      iteracionSemiSuper = resultsSSData.iteracionSemiSuper + iteracionSemiSuper 
+      
+      //metrics
+      acierto = metrics.accuracy + acierto
+      auROC = metrics2.areaUnderROC + auROC
+      auPR = metrics2.areaUnderPR + auPR 
+      f1Score = metrics.fMeasure(1) + f1Score
+    }
+    
+    //avg metrics
+    acierto = acierto / kFolds
+    auROC = auROC / kFolds
+    auPR = auPR / kFolds
+    f1Score =f1Score / kFolds
+    dataLabeledFinal = dataLabeledFinal / kFolds
+    dataUnDataLabeledFinal = dataUnDataLabeledFinal / kFolds
+    dataLabeledIni = dataLabeledIni / kFolds
+    dataUnLabeledIni =dataUnLabeledIni / kFolds
+    iteracionSemiSuper = iteracionSemiSuper/ kFolds
+    
+    //out
+    (acierto, auROC, auPR, f1Score, dataLabeledIni, dataUnLabeledIni, dataLabeledFinal, dataUnDataLabeledFinal, iteracionSemiSuper)
+
+  }
+}
+
+// COMMAND ----------
+
 // MAGIC %md
 // MAGIC ## Comparing Spark ML with the Keel results using Semisupervised algorithms (numerical features)
 // MAGIC 
@@ -1141,9 +1286,9 @@ val dataDF:Array[DataFrame] = new Array[DataFrame](data.size)
 
 
 for (posPipeline <- 0 to (data.size-1)){
+  
   //reading
   var PATH="dbfs:/FileStore/tables/"
-  
   dataDF(posPipeline) = spark.read.format("csv")
     .option("sep", ",")
     .option("inferSchema", "true")
@@ -1151,15 +1296,14 @@ for (posPipeline <- 0 to (data.size-1)){
     .load(PATH + data(posPipeline))
   dataDF(posPipeline) = dataDF(posPipeline).na.drop()
 
-  //Featurization
+  //featurization
   var dataFeatures=dataDF(posPipeline).columns.diff(Array(dataDF(posPipeline).columns.last))
-
   var dataFeaturesLabelPipeline= new VectorAssembler().setOutputCol("features").setInputCols(dataFeatures)
 
   // StringIndexer para pasar el valor categorico a double de la clase , para la features no utilizamos pq ya son doubles. 
   var indexClassPipeline = new StringIndexer().setInputCol(dataDF(posPipeline).columns.last).setOutputCol("label").setHandleInvalid("skip")
 
-  //generamos el pipeline
+  //pipelineFeaturization
   featurizationPipeline(posPipeline) = new Pipeline().setStages(Array(
                                                 dataFeaturesLabelPipeline,
                                                 indexClassPipeline))
@@ -1168,17 +1312,17 @@ for (posPipeline <- 0 to (data.size-1)){
 // COMMAND ----------
 
 // DBTITLE 1,Comparing Supervised
+//base clasifiers 
 val instanciaTrainingPipelineDT = new Supervised(new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label"))
 val instanciaTrainingPipelineRF = new Supervised(new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label"))
 val instanciaTrainingPipelineNB = new Supervised(new NaiveBayes().setFeaturesCol("features").setLabelCol("label"))
 val instanciaTrainingPipelineLR = new Supervised(new LogisticRegression().setFeaturesCol("features").setLabelCol("label"))
 
-
+//Array of instances
 val arrayClassifiers:Array[(String,PipelineStage)] = Array(("DT-Sark",instanciaTrainingPipelineDT),
                                        ("LR-Sark",instanciaTrainingPipelineLR),
                                        ("RF-Sark",instanciaTrainingPipelineRF),
                                        ("NB-Sark",instanciaTrainingPipelineNB)
-                                       //("LSVM",instanciaTrainingPipelineLSVM) 
                                       )
 
 
@@ -1190,12 +1334,15 @@ val criterion = Array("n.a") // Supervised is n.a
 val dataCode =  Array("coil2000","sonar","spectfheart","heart","wisconsin")
 var resultsSupervised:Array[DataFrame] = new Array[DataFrame](dataCode.size) 
 
-
+//calculation
 for (posDataSet <- 0 to (dataCode.size-1)){
+  
   //template dataFrame results according the parameters
   var resultsInfo=generadorDataFrameResultadosSemiSuper(dataCode(posDataSet),classifierBase, percentageLabeled)
+  
   // final pipeline models with all the configurations (parameters)
   var modelsPipeline = criterion.map(crit=>(crit,percentageLabeled.map(per=>(per,threshold.map(th=>(th,arrayClassifiers.map(clasi=>(clasi._1,new Pipeline().setStages(Array(clasi._2))))))))))
+  
   // dataframe of final results
   resultsSupervised(posDataSet) = SupervisedAndSemiSupervisedResuts (featurizationPipeline(posDataSet), 4,dataDF(posDataSet),modelsPipeline,resultsInfo)
 }
@@ -1217,7 +1364,7 @@ val instTrainingPipelineRF = new RandomForestClassifier().setFeaturesCol("featur
 val instTrainingPipelineNB = new NaiveBayes().setFeaturesCol("features").setLabelCol("label")
 val instTrainingPipelineLR = new LogisticRegression().setFeaturesCol("features").setLabelCol("label")
 
-
+//Array of instances
 val arrayClassifiers:Array[(String,PipelineStage)] = Array(("ST-DT-Spark",instTrainingPipelineDT),
                                       ("ST-LR-Spark",instTrainingPipelineLR),
                                       ("ST-RF-Spark",instTrainingPipelineRF),
@@ -1237,9 +1384,9 @@ val maxIter = 5
 val criterion = Array("threshold")
 val dataCode = Array("coil2000","sonar","spectfheart","heart","wisconsin")//Array("sonar","spectfheart","heart","wisconsin")
 //Array("coil2000")//Array("coil2000","sonar","spectfheart","heart","wisconsin")//Array("titanic","coil2000","sonar","spectfheart","heart","banana","wisconsin","magic")
-
-
 var resultsSelTraining:Array[DataFrame] = new Array[DataFrame](dataCode.size) 
+
+//calculation
 for (posDataSet <- 0 to (dataCode.size-1)){
 
   //template dataFrame results according the parameters
@@ -1270,7 +1417,7 @@ val instTrainingPipelineRF = new RandomForestClassifier().setFeaturesCol("featur
 val instTrainingPipelineNB = new NaiveBayes().setFeaturesCol("features").setLabelCol("label")
 val instTrainingPipelineLR = new LogisticRegression().setFeaturesCol("features").setLabelCol("label")
 
-
+//Array of instances
 val arrayClassifiers:Array[(String,PipelineStage)] = Array(("CT-DT-Spark",instTrainingPipelineDT),
                                       ("CT-LR-Spark",instTrainingPipelineLR),
                                       ("CT-RF-Spark",instTrainingPipelineRF),
@@ -1288,9 +1435,9 @@ val maxIter = 5
 val criterion = Array("threshold")
 val dataCode = Array("coil2000","sonar","spectfheart","heart","wisconsin")
 //Array("coil2000")//Array("coil2000","sonar","spectfheart","heart","wisconsin")//Array("titanic","coil2000","sonar","spectfheart","heart","banana","wisconsin","magic")
-
-
 var resultsCoTraining:Array[DataFrame] = new Array[DataFrame](dataCode.size) 
+
+//calculation
 for (posDataSet <- 0 to (dataCode.size-1)){
 
   //template dataFrame results according the parameters
@@ -1983,10 +2130,10 @@ val instanciaTrainingPipelineLR = new Supervised(new LogisticRegression().setFea
 
 
 // intances of baseClasifiers
-val arrayClassifiers_Supervised:Array[(String,PipelineStage)] = Array(("DT",instanciaTrainingPipelineDT)/*,
-                                       ("LR",instanciaTrainingPipelineLR),
-                                       ("RF",instanciaTrainingPipelineRF),
-                                       ("NB",instanciaTrainingPipelineNB)*/
+val arrayClassifiers_Supervised:Array[(String,PipelineStage)] = Array(("DT-Spark",instanciaTrainingPipelineDT),
+                                       ("LR-Spark",instanciaTrainingPipelineLR),
+                                       ("RF-Spark",instanciaTrainingPipelineRF),
+                                       ("NB-Spark",instanciaTrainingPipelineNB)
                                        //("LSVM",instanciaTrainingPipelineLSVM) 
                                       )
 
@@ -2005,7 +2152,7 @@ val criterion = Array("n.a") // Supervised is n.a
 
 
 val classifierBase = arrayClassifiers_Supervised.map(cls =>cls._1)
-val percentageLabeled =Array(0.0001)//Array(0.0001,0.001,0.01,0.05,0.1,0.3)
+val percentageLabeled =Array(0.0001,0.001,0.01,0.05,0.1,0.3)
 val dataCode = "POKER"
 
 
@@ -2033,23 +2180,27 @@ val modelsPipeline = criterion.map(crit=>(crit,percentageLabeled.map(per=>(per,t
 
 val resultsPokerSupervised = SupervisedAndSemiSupervisedResuts(featurizationPipelinePoker, 4,datosDFNew,modelsPipeline,resultsInfo)
 
-display(resultsPokerSupervised)
+//display(resultsPokerSupervised)
 
+
+// COMMAND ----------
+
+display(resultsPokerSupervised)
 
 // COMMAND ----------
 
 // DBTITLE 1,SelfTrainning - POKER (DT, LR, RF ....)
 
-val instanciaTrainingPipelineDT = new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label").setMaxBins(42)
-val instanciaTrainingPipelineRF = new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label").setMaxBins(42)
+val instanciaTrainingPipelineDT = new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineRF = new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label")
 val instanciaTrainingPipelineNB = new NaiveBayes().setFeaturesCol("features").setLabelCol("label")
 val instanciaTrainingPipelineLR = new LogisticRegression().setFeaturesCol("features").setLabelCol("label")
 
 
-val arrayClassifiers:Array[(String,PipelineStage)] = Array(("ST-DT",instanciaTrainingPipelineDT)
-                                      //("ST-LR",instanciaTrainingPipelineRF ),
-                                       //("ST-RF",instanciaTrainingPipelineNB ),
-                                       //("ST-NB",instanciaTrainingPipelineLR)
+val arrayClassifiers:Array[(String,PipelineStage)] = Array(("ST-DT-Spark",instanciaTrainingPipelineDT),
+                                      ("ST-LR-Spark",instanciaTrainingPipelineRF ),
+                                      ("ST-RF-Spark",instanciaTrainingPipelineNB ),
+                                      ("ST-NB-Spark",instanciaTrainingPipelineLR)
                                       )
 
 // results for Semisupervised
@@ -2057,8 +2208,8 @@ var SemiSupervisedData = new SemiSupervisedDataResults ()
 
 //parameters
 val classifierBase = arrayClassifiers.map(cls =>cls._1)
-val percentageLabeled = Array(0.0001)//Array(0.0001,0.001,0.01,0.05,0.1,0.3)
-val threshold= Array(0.8)//Array(0.8,0.9,0.95)//Array(0.4,0.5,0.6,0.7,0.8,0.85,0.9,0.95)
+val percentageLabeled = Array(0.0001,0.001,0.01,0.05,0.1,0.3)
+val threshold= Array(0.9)//Array(0.8,0.9,0.95)//Array(0.4,0.5,0.6,0.7,0.8,0.85,0.9,0.95)
 val kBest= Array(0.1)//Array(0.05,0.1,0.2,0.3,0.8)//Array(0.4,0.5,0.6,0.7,0.8,0.85,0.9,0.95) //percentage per 1 of unlabeled total data that should be labeled at the end
 val dataCode = "POKER"
 val criterion = Array("threshold")//Array("threshold","kBest")
@@ -2072,7 +2223,48 @@ val modelsPipeline = pipelineModelsSelfTraining(threshold,kBest,percentageLabele
 // dataframe of final results
 val resultsPokerST = SupervisedAndSemiSupervisedResuts (featurizationPipelinePoker, 4,datosDFNew,modelsPipeline,resultsInfo,SemiSupervisedData)
 
-display(resultsPokerST)
+//display(resultsPokerST)
+
+// COMMAND ----------
+
+// DBTITLE 1,CoTraining - Poker (DT,LR...)
+
+val instanciaTrainingPipelineDT = new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineRF = new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineNB = new NaiveBayes().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineLR = new LogisticRegression().setFeaturesCol("features").setLabelCol("label")
+
+
+val arrayClassifiers:Array[(String,PipelineStage)] = Array(("CT-DT-Spark",instanciaTrainingPipelineDT),
+                                      ("CT-LR-Spark",instanciaTrainingPipelineRF ),
+                                      ("CT-RF-Spark",instanciaTrainingPipelineNB ),
+                                      ("CT-NB-Spark",instanciaTrainingPipelineLR)
+                                      )
+
+// results for Semisupervised
+var SemiSupervisedData = new SemiSupervisedDataResults ()
+
+//parameters
+val classifierBase = arrayClassifiers.map(cls =>cls._1)
+val percentageLabeled = Array(0.0001,0.001,0.01,0.05,0.1,0.3)
+val threshold= Array(0.9)//Array(0.8,0.9,0.95)//Array(0.4,0.5,0.6,0.7,0.8,0.85,0.9,0.95)
+val kBest= Array(0.1)//Array(0.05,0.1,0.2,0.3,0.8)//Array(0.4,0.5,0.6,0.7,0.8,0.85,0.9,0.95) //percentage per 1 of unlabeled total data that should be labeled at the end
+val dataCode = "POKER"
+val criterion = Array("threshold")//Array("threshold","kBest")
+
+//template dataFrame results according the parameters
+val resultsInfo=generadorDataFrameResultadosSemiSuper(dataCode,classifierBase, percentageLabeled,threshold,kBest,criterion)
+
+// final pipeline models with all the configurations (parameters)
+val modelsPipeline = pipelineModelsCoTraining(threshold,kBest,percentageLabeled,SemiSupervisedData,arrayClassifiers,criterion)
+
+// dataframe of final results
+val resultsPoker_CT = SupervisedAndSemiSupervisedResuts (featurizationPipelinePoker, 4,datosDFNew,modelsPipeline,resultsInfo,SemiSupervisedData)
+
+
+// COMMAND ----------
+
+display(resultsPoker_CT)
 
 // COMMAND ----------
 
@@ -2276,7 +2468,6 @@ val valoresCategoricosFeatures= Array("vendor_id","pickup_month","pickup_day", "
 
 
 //StringIndexer para la features
-
 val indexStringFeaturesLlamada = indexStringColumnsStagePipeline(datosDF_NY,valoresCategoricosFeatures)
 
 val indexStringFeaturesTodasNumNY = indexStringFeaturesLlamada._1
@@ -2300,7 +2491,6 @@ val featurizationPipelineNY = new Pipeline().setStages(Array(
                                               indiceClasePipelineNY))
 
 
-
 // COMMAND ----------
 
 // DBTITLE 1,Supervised - TAXI NY(DT, LR, RF,NB)
@@ -2313,10 +2503,10 @@ val instanciaTrainingPipelineLR = new Supervised(new LogisticRegression().setFea
 
 
 // intances of baseClasifiers
-val arrayClassifiers_Supervised:Array[(String,PipelineStage)] = Array(("DT",instanciaTrainingPipelineDT)/*,
-                                       ("LR",instanciaTrainingPipelineLR),
-                                       ("RF",instanciaTrainingPipelineRF),
-                                       ("NB",instanciaTrainingPipelineNB)*/
+val arrayClassifiers_Supervised:Array[(String,PipelineStage)] = Array(("DT-Spark",instanciaTrainingPipelineDT),
+                                       ("LR-Spark",instanciaTrainingPipelineLR),
+                                       ("RF-Spark",instanciaTrainingPipelineRF),
+                                       ("NB-Spark",instanciaTrainingPipelineNB)
                                        //("LSVM",instanciaTrainingPipelineLSVM) 
                                       )
 
@@ -2335,7 +2525,7 @@ val criterion = Array("n.a") // Supervised is n.a
 
 
 val classifierBase = arrayClassifiers_Supervised.map(cls =>cls._1)
-val percentageLabeled =Array(0.0001)//Array(0.0001,0.001,0.01,0.05,0.1,0.3)//(0.01,0.05,0.10,0.30) //Array(0.01)
+val percentageLabeled =Array(0.0001,0.001,0.01,0.05,0.1,0.3)
 val dataCode = "TXNY"
 
 
@@ -2361,14 +2551,20 @@ val modelsPipeline = criterion.map(crit=>(crit,percentageLabeled.map(per=>(per,t
 // final results dataframe
 //+++++++++++++++++++++++++++++++++++++++++++++++
 
-val resultsTaxiNYSupervised = SupervisedAndSemiSupervisedResuts(featurizationPipelineNY, 4,datosDF_NY,modelsPipeline,resultsInfo)
+val resultsPokerSupervised = SupervisedAndSemiSupervisedResuts(featurizationPipelineNY, 4,datosDF_NY,modelsPipeline,resultsInfo)
 
-display(resultsTaxiNYSupervised)
+//display(resultsPokerSupervised)
+
 
 
 // COMMAND ----------
 
+display(resultsPokerSupervised)
+
+// COMMAND ----------
+
 // DBTITLE 1,SelfTrainning - TAXI NY (DT, LR, RF ....)
+import functionsSemiSupervised._
 
 val instanciaTrainingPipelineDT = new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label").setMaxBins(42)
 val instanciaTrainingPipelineRF = new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label").setMaxBins(42)
@@ -2387,10 +2583,10 @@ var SemiSupervisedData = new SemiSupervisedDataResults ()
 
 //parameters
 val classifierBase = arrayClassifiers.map(cls =>cls._1)
-val percentageLabeled = Array(0.0001)//Array(0.0001,0.001,0.01,0.05,0.1,0.3)
-val threshold= Array(0.8)//Array(0.8,0.9,0.95)//Array(0.4,0.5,0.6,0.7,0.8,0.85,0.9,0.95)
+val percentageLabeled = Array(0.0001,0.001,0.01,0.05,0.1,0.3)
+val threshold= Array(0.9)//Array(0.8,0.9,0.95)//Array(0.4,0.5,0.6,0.7,0.8,0.85,0.9,0.95)
 val kBest= Array(0.1)//Array(0.05,0.1,0.2,0.3,0.8)//Array(0.4,0.5,0.6,0.7,0.8,0.85,0.9,0.95) //percentage per 1 of unlabeled total data that should be labeled at the end
-val dataCode = "TXNY"
+val dataCode = "POKER"
 val criterion = Array("threshold")//Array("threshold","kBest")
 
 //template dataFrame results according the parameters
@@ -2402,7 +2598,43 @@ val modelsPipeline = pipelineModelsSelfTraining(threshold,kBest,percentageLabele
 // dataframe of final results
 val resultsTaxiNYST = SupervisedAndSemiSupervisedResuts (featurizationPipelineNY, 4,datosDF_NY,modelsPipeline,resultsInfo,SemiSupervisedData)
 
-display(resultsTaxiNYST)
+//display(resultsTaxiNYST)
+
+// COMMAND ----------
+
+
+val instanciaTrainingPipelineDT = new DecisionTreeClassifier().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineRF = new RandomForestClassifier().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineNB = new NaiveBayes().setFeaturesCol("features").setLabelCol("label")
+val instanciaTrainingPipelineLR = new LogisticRegression().setFeaturesCol("features").setLabelCol("label")
+
+
+val arrayClassifiers:Array[(String,PipelineStage)] = Array(("CT-DT-Spark",instanciaTrainingPipelineDT),
+                                      ("CT-LR-Spark",instanciaTrainingPipelineRF ),
+                                      ("CT-RF-Spark",instanciaTrainingPipelineNB ),
+                                      ("CT-NB-Spark",instanciaTrainingPipelineLR)
+                                      )
+
+// results for Semisupervised
+var SemiSupervisedData = new SemiSupervisedDataResults ()
+
+//parameters
+val classifierBase = arrayClassifiers.map(cls =>cls._1)
+val percentageLabeled = Array(0.0001,0.001,0.01,0.05,0.1,0.3)
+val threshold= Array(0.9)//Array(0.8,0.9,0.95)//Array(0.4,0.5,0.6,0.7,0.8,0.85,0.9,0.95)
+val kBest= Array(0.1)//Array(0.05,0.1,0.2,0.3,0.8)//Array(0.4,0.5,0.6,0.7,0.8,0.85,0.9,0.95) //percentage per 1 of unlabeled total data that should be labeled at the end
+val dataCode = "TXNY"
+val criterion = Array("threshold")//Array("threshold","kBest")
+
+//template dataFrame results according the parameters
+val resultsInfo=generadorDataFrameResultadosSemiSuper(dataCode,classifierBase, percentageLabeled,threshold,kBest,criterion)
+
+// final pipeline models with all the configurations (parameters)
+val modelsPipeline = pipelineModelsCoTraining(threshold,kBest,percentageLabeled,SemiSupervisedData,arrayClassifiers,criterion)
+
+// dataframe of final results
+val resultsTaxi_CT = SupervisedAndSemiSupervisedResuts (featurizationPipelineNY, 4,datosDF_NY,modelsPipeline,resultsInfo,SemiSupervisedData)
+
 
 // COMMAND ----------
 
