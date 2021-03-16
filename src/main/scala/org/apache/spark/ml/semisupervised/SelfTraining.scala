@@ -1,11 +1,16 @@
-
 package org.apache.spark.ml.semisupervised
+
 import org.apache.spark.ml.util.Identifiable
 import org.apache.spark.sql.DataFrame
-import org.apache.spark.ml.classification.DecisionTreeClassifier
+//import org.apache.spark.ml.classification.DecisionTreeClassifier
 import org.apache.spark.mllib.linalg.DenseVector
-import sqlContext.implicits._
-import org.apache.spark.sql.functions.udf
+//import sqlContext.implicits._
+//import org.apache.spark.sql.SQLContext
+import org.apache.spark.sql.Column
+import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.functions._
+//import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{SparkSession, SQLContext}
 
 /** Class --> SELF TRAINING */ 
 
@@ -17,7 +22,7 @@ class SelfTraining [
     val uid: String,
     val baseClassifier: org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M],    
   ) extends org.apache.spark.ml.classification.ProbabilisticClassifier[FeatureType, E, M] with Serializable {
-  
+    
   var porcentajeLabeled: Double = 1.0
   var threshold: Double = 0.7
   var maxIter: Int = 7
@@ -115,7 +120,10 @@ class SelfTraining [
   
   def train(dataset: org.apache.spark.sql.Dataset[_]): M = {
     iter = 1
-    
+    val sql = SparkSession.builder().getOrCreate()
+    //val sql = sparkSession
+    import sql.implicits._
+
     //udf to get he max value from probabilisti array
     val max = udf((v: org.apache.spark.ml.linalg.Vector) => v.toArray.max)
     var dataUnLabeled = dataset.filter(dataset(columnNameNewLabels).isNaN).toDF.cache()
@@ -200,3 +208,4 @@ class SelfTraining [
   override def transformSchema(schema: StructType): StructType = schema
   override def copy(extra: org.apache.spark.ml.param.ParamMap): E = defaultCopy(extra)
 }
+
