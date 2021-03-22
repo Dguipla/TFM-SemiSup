@@ -1,4 +1,4 @@
-name := "spark_semisupervised_v3"
+name := "spark_semisupervised_v4"
 version := "1.0.0"
 organization := "ubu"
 licenses := Seq("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0.html"))
