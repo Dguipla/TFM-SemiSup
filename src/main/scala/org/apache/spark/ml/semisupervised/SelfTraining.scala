@@ -33,7 +33,7 @@ class SelfTraining [
   var dataLabeledIni: Long = _
   var dataUnLabeledIni: Long = _
   var iter: Int = 0
-  var columnNameNewLabels: String = "labelSelection"
+  var columnNameNewLabels: String = "label"
   var resultsSelfTrainingData: SemiSupervisedDataResults = _
   var numberOfkBest: Int = 0
 
