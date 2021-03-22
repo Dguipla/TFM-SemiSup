@@ -67,6 +67,7 @@ object FunctionsSemiSupervised extends Serializable {
                                                                                                                                       .setThreshold(th)
                                                                                                                                       .setCriterion(crit)
                                                                                                                                       .setMaxITer(iterations)
+                                                                                                                                      .setColumnLabelName("labelSelection")
                                                                                                                                       .setSemiSupervisedDataResults(resultsSemiSupData)))))))
                                                      }
                                                      
@@ -77,6 +78,7 @@ object FunctionsSemiSupervised extends Serializable {
                                                                                                                                       .setKbest(kb)
                                                                                                                                       .setCriterion(crit)
                                                                                                                                       .setMaxITer(iterations)
+                                                                                                                                      .setColumnLabelName("labelSelection")
                                                                                                                                       .setSemiSupervisedDataResults(resultsSemiSupData)))))))
                                                      }
                                                     ))))
@@ -104,6 +106,7 @@ object FunctionsSemiSupervised extends Serializable {
                                                                                                                                       .setThreshold(th)
                                                                                                                                       .setCriterion(crit)
                                                                                                                                       .setMaxITer(iterations)
+                                                                                                                                      .setColumnLabelName("labelSelection")
                                                                                                                                       .setSemiSupervisedDataResults(resultsSemiSupData)))))))
                                                      }
                                                      
@@ -115,6 +118,7 @@ object FunctionsSemiSupervised extends Serializable {
                                                                                                                                       .setKbest(kb)
                                                                                                                                       .setCriterion(crit)
                                                                                                                                       .setMaxITer(iterations)
+                                                                                                                                      .setColumnLabelName("labelSelection")
                                                                                                                                       .setSemiSupervisedDataResults(resultsSemiSupData)))))))
                                                      }
                                                     ))))
