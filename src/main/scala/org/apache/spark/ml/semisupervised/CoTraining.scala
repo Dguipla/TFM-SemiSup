@@ -37,7 +37,7 @@ class CoTraining [
   var dataLabeled: Long = _
   var iter: Int = 0
   var columnNameNewLabels: String = "label"
-  var resultsSelfTrainingData: SemiSupervisedDataResults = _
+  var resultsSelfTrainingData: SemiSupervisedDataResults = new SemiSupervisedDataResults ()
   var numberOfkBest: Int = 0
   var modeloIterST: M= _
 
