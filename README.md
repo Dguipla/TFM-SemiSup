@@ -4,7 +4,8 @@
 ### - Status: Ongoing.
 ### - Design Tools : DataBricks - Spark (Scala).
 ### - Results Tools: PowerBI and Python (matplotlib, Seaborn, and Plotly).
-### - Semisupervised algorithms (Self-Training and Co-Training), referenes:
+### - Semisupervised algorithms (Self-Training and Co-Training)
+###   Referenes:
 
 <a id="1">[1]</a> 
 Yarowsky, David (1995). 
