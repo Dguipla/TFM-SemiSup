@@ -5,4 +5,3 @@
 ### - Design Tools : DataBricks - Spark (Scala)
 ### - Results Tools: PowerBI and Python (matplotlib, Seaborn, and Plotly) 
 
-pandoc Experimental-notes.md -t markdown-citations -o out.md --bibliography ../allBib.bib
