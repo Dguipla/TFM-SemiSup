@@ -6,7 +6,7 @@
 ### - Design Tools : DataBricks - Spark (Scala).
 ### - Results Tools: PowerBI and Python (matplotlib, Seaborn, and Plotly).
 
-###   Referenes:
+###   References (_Self-Training and Co-Training_):
 
 <a id="1">[1]</a> 
 Yarowsky, David (1995). 
