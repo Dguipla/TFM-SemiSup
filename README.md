@@ -2,9 +2,10 @@
 ## Semisupervised classification methods (SSC) with Spark-ML, study and implementation 
 
 ### - Status: Ongoing.
+### - Semisupervised algorithms implemented:  Self-Training and Co-Training
 ### - Design Tools : DataBricks - Spark (Scala).
 ### - Results Tools: PowerBI and Python (matplotlib, Seaborn, and Plotly).
-### - Semisupervised algorithms (Self-Training and Co-Training)
+
 ###   Referenes:
 
 <a id="1">[1]</a> 
