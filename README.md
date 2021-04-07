@@ -11,7 +11,7 @@
 <a id="1">[1]</a> 
 Yarowsky, David (1995). 
 Unsupervised word sense disambiguation rivaling supervised methods.
-3rd annual meeting of the association for computational linguistics, 189--196.
+3rd annual meeting of the association for computational linguistics, 189-196.
 
 <a id="1">[2]</a> 
 Iosifidis, Vasileios and Ntoutsi, Eirini (2017). 
