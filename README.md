@@ -1,12 +1,12 @@
 # TFM 
 ## Semisupervised classification methods (SSC) with Spark-ML, study and implementation 
 
-### - Status: Ongoing
-### - Design Tools : DataBricks - Spark (Scala)
-### - Results Tools: PowerBI and Python (matplotlib, Seaborn, and Plotly) 
+### - Status: Ongoing.
+### - Design Tools : DataBricks - Spark (Scala).
+### - Results Tools: PowerBI and Python (matplotlib, Seaborn, and Plotly).
 
-## Semisupervised algorithms implemented in Spark
-### Self-Training and Co-Training, referenes:
+## Semisupervised algorithms (Self-Training and Co-Training) implemented in Spark
+### Referenes:
 
 <a id="1">[1]</a> 
 Yarowsky, David (1995). 
