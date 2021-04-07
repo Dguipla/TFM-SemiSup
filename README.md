@@ -19,7 +19,14 @@ Large scale sentiment learning with limited labels
 Proceedings of the 23rd ACM SIGKDD international conference on knowledge discovery and data mining, 1823-1832.
 
 <a id="1">[3]</a> 
-Dijkstra, E. W. (1998). 
-Combining labeled and unlabeled data with co-training} 
+Blum, Avrim and Mitchell, Tom (1998). 
+Combining labeled and unlabeled data with co-training
 Proceedings of the eleventh annual conference on Computational learning theory, 92-100
+
+<a id="1">[4]</a> 
+Triguero, Isaac and Garc{\'\i}a, Salvador and Herrera, Francisco (2015). 
+Self-labeled techniques for semi-supervised learning: taxonomy, software and empirical study
+Knowledge and Information systems (Springer), volume 42, number 2, 245-284.
+
+
 
