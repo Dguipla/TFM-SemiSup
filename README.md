@@ -24,7 +24,7 @@ Combining labeled and unlabeled data with co-training
 Proceedings of the eleventh annual conference on Computational learning theory, 92-100
 
 <a id="1">[4]</a> 
-Triguero, Isaac and Garc{\'\i}a, Salvador and Herrera, Francisco (2015). 
+Triguero, Isaac and Garcia, Salvador and Herrera, Francisco (2015). 
 Self-labeled techniques for semi-supervised learning: taxonomy, software and empirical study
 Knowledge and Information systems (Springer), volume 42, number 2, 245-284.
 
