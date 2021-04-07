@@ -4,7 +4,7 @@
 ### - Status: Ongoing.
 ### - Semisupervised algorithms implemented:  Self-Training and Co-Training
 ### - Design Tools : DataBricks - Spark (Scala).
-### - Results Tools: PowerBI and Python (matplotlib, Seaborn, and Plotly).
+### - Visualization tools: PowerBI and Python (matplotlib, Seaborn, and Plotly).
 
 ##  References (_Self-Training and Co-Training algorithms_):
 
