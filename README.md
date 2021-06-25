@@ -5,7 +5,7 @@ Master thesis, Master ( MSc) **Business Intelligence and *Big Data* in Cyber-Sec
 
 Author: **David Guinart Platero** 
 
-Supervisors: **Dr. Álvar Arnaiz González** y **Dr. José Francisco Diez Pastor**
+Supervisors: **Dr. Álvar Arnaiz González** and **Dr. José Francisco Diez Pastor**
 
 ######
 - __status__ : Ongoing.
