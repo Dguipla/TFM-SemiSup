@@ -1,8 +1,8 @@
-# TFM 
+###### Master thesis, Master ( MSc) ** Business Intelligence and *Big Data* in Cyber-Secure Environments**  ** from the universities of Burgos, León and Valladolid**
+
 ## Semisupervised classification methods (SSC) with Spark-ML, study and implementation 
 
-######
-Trabajo de fin de máster, del Máster universitario de **Inteligencia de Negocio y *Big-Data* en Entornos Seguros** en las **Universidades de Burgos, León y Valladolid**
+
 
 ### - Status: Ongoing.
 ### - Semisupervised algorithms implemented:  Self-Training and Co-Training
