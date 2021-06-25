@@ -1,15 +1,29 @@
-## Semisupervised classification methods (SSC) with Spark-ML, study and implementation 
+# Semisupervised classification methods (SSC) with Spark-ML, study and implementation 
 
-##### Master thesis, Master ( MSc) **Business Intelligence and *Big Data* in Cyber-Secure Environments**  **from the universities of Burgos, León and Valladolid**
+#### 
+Master thesis, Master ( MSc) **Business Intelligence and *Big Data* in Cyber-Secure Environments**  from the **universities of Burgos, León and Valladolid** 
+
+Author: **David Guinart Platero** 
+
+Supervisors: **Dr. Álvar Arnaiz González** y **Dr. José Francisco Diez Pastor**
+
+######
+- __status__ : Ongoing.
+- __Semisupervised algorithms implemented__:  Self-Training and Co-Training
+- __Design Tools__ : DataBricks - Spark (Scala).
+- __Visualization tools__: PowerBI and Python (matplotlib, Seaborn, and Plotly).
+
+## Abstract
+This master thesis studies different classification algorithms within the frame of semi-supervised  learning (inductive) working with base classifiers (Decision tree, Naive Bayes...) using Spark ML. 
+
+The main goal of this study is to design, implement, verify and build a library on Spark ML in order to make it easy to reuse on the any Spark environment.  
+On the other hand, this project do an experimentation with different datasets where the main idea is to compare empirically the results between supervised algorithms /base classifiers (working with the samples labeled) and the semi-supervised algorithms working with semi-supervised (samples labeled and unlabeled). 
+In order to analyze in more details, the outcomes and manage the huge number of data, this project has created a dashboard.
+
+Finally, this project presents the conclusions and new lines of research working with the new library built (for Spark) in this research project as it has been described previously.
 
 
 
-
-
-###### - **Status**: Ongoing.
-###### - Semisupervised algorithms implemented:  Self-Training and Co-Training
-### - Design Tools : DataBricks - Spark (Scala).
-### - Visualization tools: PowerBI and Python (matplotlib, Seaborn, and Plotly).
 
 ##  References (_Self-Training and Co-Training algorithms_):
 
