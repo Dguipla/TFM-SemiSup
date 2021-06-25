@@ -1,4 +1,4 @@
-###### Master thesis, Master ( MSc) ** Business Intelligence and *Big Data* in Cyber-Secure Environments**  ** from the universities of Burgos, León and Valladolid**
+###### Master thesis, Master ( MSc) **Business Intelligence and *Big Data* in Cyber-Secure Environments**  **from the universities of Burgos, León and Valladolid**
 
 ## Semisupervised classification methods (SSC) with Spark-ML, study and implementation 
 
