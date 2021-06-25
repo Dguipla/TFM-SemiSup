@@ -13,6 +13,9 @@ Supervisors: **Dr. Álvar Arnaiz González** and **Dr. José Francisco Diez Past
 - __Design Tools__ : DataBricks - Spark (Scala).
 - __Visualization tools__: PowerBI and Python (matplotlib, Seaborn, and Plotly).
 
+---
+---
+
 ## Abstract
 This master thesis studies different classification algorithms within the frame of semi-supervised  learning (inductive) working with base classifiers (Decision tree, Naive Bayes...) using Spark ML. 
 
