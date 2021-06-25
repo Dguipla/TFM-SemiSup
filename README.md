@@ -6,7 +6,7 @@
 
 
 
-###### - Status: Ongoing.
+###### - **Status**: Ongoing.
 ###### - Semisupervised algorithms implemented:  Self-Training and Co-Training
 ### - Design Tools : DataBricks - Spark (Scala).
 ### - Visualization tools: PowerBI and Python (matplotlib, Seaborn, and Plotly).
