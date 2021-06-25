@@ -1,6 +1,9 @@
 # TFM 
 ## Semisupervised classification methods (SSC) with Spark-ML, study and implementation 
 
+######
+Trabajo de fin de máster, del Máster universitario de **Inteligencia de Negocio y *Big-Data* en Entornos Seguros** en las **Universidades de Burgos, León y Valladolid**
+
 ### - Status: Ongoing.
 ### - Semisupervised algorithms implemented:  Self-Training and Co-Training
 ### - Design Tools : DataBricks - Spark (Scala).
