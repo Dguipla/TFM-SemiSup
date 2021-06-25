@@ -8,7 +8,7 @@ Author: **David Guinart Platero**
 Supervisors: **Dr. Álvar Arnaiz González** and **Dr. José Francisco Diez Pastor**
 
 ######
-- __status__ : Completed
+- __Status__ : Completed
 - __Semisupervised algorithms implemented__:  Self-Training and Co-Training
 - __Design Tools__ : DataBricks - Spark (Scala).
 - __Visualization tools__: PowerBI and Python (matplotlib, Seaborn, and Plotly).
