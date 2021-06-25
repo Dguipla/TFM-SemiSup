@@ -3,7 +3,7 @@
 #### 
 Master thesis, Master (MSc) **Business Intelligence and Big Data in Cyber-Secure Environments**  from the **universities of Burgos, León and Valladolid** 
 
-Author: **David Guinart Platero*
+Author: **David Guinart Platero**
 
 Supervisors: **Dr. Álvar Arnaiz González** and **Dr. José Francisco Diez Pastor**
 
